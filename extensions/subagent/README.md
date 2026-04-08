@@ -7,8 +7,9 @@ Delegate tasks to specialized subagents with isolated context windows.
 - **Isolated context**: Each subagent runs in a separate `pi` process
 - **Structured delegation brief**: Automatically wraps plain-language tasks with Goal, Constraints, and Success criteria
 - **Structured task objects**: You can pass `goal`, `context`, `constraints`, `successCriteria`, `outputFormat`, and `toolingHint` directly instead of squeezing everything into one string
-- **Agent discovery mode**: `action: "list"` returns the available agents before delegation
-- **Early validation**: rejects empty tasks and invalid working directories before spawning subprocesses
+- **Agent discovery mode**: `action: "list"` returns the available agents before delegation with a richer list view
+- **Early validation**: rejects empty tasks, invalid working directories, and impossible first-step `{previous}` usage before spawning subprocesses
+- **Safer chain handoffs**: `{previous}` is wrapped as untrusted reference context and truncated for cost control
 - **Safer subprocess handling**: malformed JSON output from subagents is treated as a failure instead of being silently ignored
 - **Streaming output**: See tool calls and progress as they happen
 - **Parallel streaming**: All parallel tasks stream updates simultaneously
@@ -63,7 +64,7 @@ When running headless, the tool now fails closed if project-local agents would r
 subagent({ action: "list", agentScope: "both" })
 ```
 
-The list output now also includes discovery warnings, such as malformed agent files or project agents overriding user agents.
+The list output now also includes discovery warnings, such as malformed agent files or project agents overriding user agents, and the expanded view shows model/tool/file-path details for each discovered agent.
 
 ### Single agent
 ```
@@ -130,9 +131,11 @@ Use a chain: first have explorer find the read tool, then have planner suggest i
 
 Chain steps can reference earlier results with these placeholders:
 
-- `{previous}` - a structured handoff block containing the previous agent name, status, and final output
-- `{previous_output}` - the raw final assistant text from the previous step
+- `{previous}` - a structured handoff block containing the previous agent name, status, usage, and truncated final output. It is explicitly marked as untrusted prior output so the next agent treats it as reference data rather than instructions.
+- `{previous_output}` - the previous step's final assistant text, truncated for cost control when very large
 - `{previous_agent}` - the previous agent's resolved name
+
+`{previous}`-style placeholders are only valid from chain step 2 onward. Step 1 now fails validation if it references a previous-step placeholder.
 
 
 ## Output Display
@@ -149,6 +152,12 @@ The subagent extension now also emits a separate final display message for the u
 - All tool calls with formatted arguments
 - Final output rendered as Markdown
 - Per-task usage (for chain/parallel)
+- Rich agent discovery details when using `action: "list"`
+
+**Conversation display message**:
+- After execution, the extension emits a markdown summary into the conversation
+- Chain and parallel runs include stage-by-stage status, usage, and final output/error sections
+- Discovery warnings are included there too when present
 
 **Parallel mode streaming**:
 - Shows all tasks with live status (⏳ running, ✓ done, ✗ failed)
@@ -247,5 +256,6 @@ Project agents override user agents with the same name when `agentScope: "both"`
 ## Limitations
 
 - Output truncated to last 10 items in collapsed view (expand to see all)
+- Chain handoff placeholders truncate very large prior outputs to avoid runaway context cost
 - Agents discovered fresh on each invocation (allows editing mid-session)
 - Parallel mode limited to 8 tasks, 4 concurrent
