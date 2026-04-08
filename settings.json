@@ -1,22 +1,22 @@
 {
-  "lastChangelogVersion": "0.65.2",
-  "defaultProvider": "opencode",
-  "defaultModel": "gemini-3.1-pro",
-  "enabledModels": [
-    "openai-codex/gpt-5.4",
-    "openai-codex/gpt-5.4-mini",
-    "opencode-go/glm-5",
-    "opencode-go/kimi-k2.5",
-    "opencode-go/minimax-m2.7",
-    "opencode-go/mimo-v2-pro",
-    "opencode/claude-opus-4-6",
-    "opencode/claude-sonnet-4-6",
-    "opencode/gemini-3-flash",
-    "opencode/gemini-3.1-pro",
-    "opencode/gpt-5.4",
-    "opencode/gpt-5.4-mini",
-    "opencode/gpt-5.4-nano"
-  ],
-  "hideThinkingBlock": false,
-  "defaultThinkingLevel": "high"
+    "lastChangelogVersion": "0.65.2",
+    "defaultProvider": "opencode",
+    "defaultModel": "gemini-3.1-pro",
+    "enabledModels": [
+        "openai-codex/gpt-5.4",
+        "openai-codex/gpt-5.4-mini",
+        "opencode-go/glm-5",
+        "opencode-go/kimi-k2.5",
+        "opencode-go/minimax-m2.7",
+        "opencode-go/mimo-v2-pro",
+        "opencode/claude-opus-4-6",
+        "opencode/claude-sonnet-4-6",
+        "opencode/gemini-3-flash",
+        "opencode/gemini-3.1-pro",
+        "opencode/gpt-5.4",
+        "opencode/gpt-5.4-mini",
+        "opencode/gpt-5.4-nano"
+    ],
+    "hideThinkingBlock": false,
+    "defaultThinkingLevel": "high"
 }
