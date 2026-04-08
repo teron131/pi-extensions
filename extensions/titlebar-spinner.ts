@@ -17,32 +17,47 @@ import type {
 const BRAILLE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const ANIMATION_INTERVAL_MS = 80;
 
-function buildTitle(pi: ExtensionAPI, frame?: string): string {
-    const cwd = path.basename(process.cwd());
-    const session = pi.getSessionName();
+type SpinnerTimer = ReturnType<typeof setInterval>;
+
+function buildTitle(
+    sessionName: string | undefined,
+    cwdName: string,
+    frame?: string,
+): string {
     const prefix = frame ? `${frame} ` : "";
-    return session ? `${prefix}π - ${session} - ${cwd}` : `${prefix}π - ${cwd}`;
+    return sessionName
+        ? `${prefix}π - ${sessionName} - ${cwdName}`
+        : `${prefix}π - ${cwdName}`;
+}
+
+function updateTitle(
+    pi: ExtensionAPI,
+    ctx: ExtensionContext,
+    frame?: string,
+): void {
+    const cwdName = path.basename(process.cwd());
+    ctx.ui.setTitle(buildTitle(pi.getSessionName(), cwdName, frame));
 }
 
 export default function (pi: ExtensionAPI) {
-    let timer: ReturnType<typeof setInterval> | null = null;
+    let animationTimer: SpinnerTimer | null = null;
     let frameIndex = 0;
 
-    function stopAnimation(ctx: ExtensionContext) {
-        if (timer) {
-            clearInterval(timer);
-            timer = null;
+    function stopAnimation(ctx: ExtensionContext): void {
+        if (animationTimer) {
+            clearInterval(animationTimer);
+            animationTimer = null;
         }
         frameIndex = 0;
-        ctx.ui.setTitle(buildTitle(pi));
+        updateTitle(pi, ctx);
     }
 
-    function startAnimation(ctx: ExtensionContext) {
+    function startAnimation(ctx: ExtensionContext): void {
         stopAnimation(ctx);
-        timer = setInterval(() => {
+        animationTimer = setInterval(() => {
             const frame = BRAILLE_FRAMES[frameIndex % BRAILLE_FRAMES.length];
-            ctx.ui.setTitle(buildTitle(pi, frame));
-            frameIndex++;
+            updateTitle(pi, ctx, frame);
+            frameIndex += 1;
         }, ANIMATION_INTERVAL_MS);
     }
 
@@ -50,11 +65,15 @@ export default function (pi: ExtensionAPI) {
         startAnimation(ctx);
     });
 
-    pi.on("agent_end", async (_event, ctx) => {
+    const handleStop = async (ctx: ExtensionContext) => {
         stopAnimation(ctx);
+    };
+
+    pi.on("agent_end", async (_event, ctx) => {
+        await handleStop(ctx);
     });
 
     pi.on("session_shutdown", async (_event, ctx) => {
-        stopAnimation(ctx);
+        await handleStop(ctx);
     });
 }
