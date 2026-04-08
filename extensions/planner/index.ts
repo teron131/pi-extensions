@@ -27,7 +27,7 @@ import {
     type TodoItem,
 } from "./utils.js";
 
-const PLAN_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", "questionnaire"];
+const PLAN_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", "question"];
 const NORMAL_MODE_TOOLS = ["read", "bash", "edit", "write"];
 
 const PLAN_ENTRY = "plan-mode";
@@ -271,11 +271,11 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 You are in plan mode - a read-only exploration mode for safe code analysis.
 
 Restrictions:
-- You can only use: read, bash, grep, find, ls, questionnaire
+- You can only use: read, bash, grep, find, ls, question
 - You CANNOT use: edit, write (file modifications are disabled)
 - Bash is restricted to an allowlist of read-only commands
 
-Ask clarifying questions using the questionnaire tool.
+Ask clarifying questions using the question tool.
 Use brave-search skill via bash for web research.
 
 Create a detailed numbered plan under a "Plan:" header:

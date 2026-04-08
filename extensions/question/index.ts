@@ -1,5 +1,5 @@
 /**
- * Questionnaire Tool - Unified tool for asking structured questions.
+ * Question Tool - Unified tool for asking structured questions.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -14,10 +14,10 @@ import {
 } from "./schema.js";
 import { runQuestionnaireSession } from "./session.js";
 
-export default function questionnaire(pi: ExtensionAPI): void {
+export default function question(pi: ExtensionAPI): void {
     pi.registerTool({
-        name: "questionnaire",
-        label: "Questionnaire",
+        name: "question",
+        label: "Question",
         description:
             "Ask the user one or more questions. Use for clarifying requirements, getting preferences, or confirming decisions. For single questions, shows a simple option list. For multiple questions, shows a tab-based interface.",
         parameters: QuestionnaireParams as never,
@@ -53,7 +53,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
                     content: [
                         {
                             type: "text",
-                            text: "User cancelled the questionnaire",
+                            text: "User cancelled the question flow",
                         },
                     ],
                     details: result,
@@ -82,7 +82,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
             const labels = questions
                 .map((question) => question.label || question.id)
                 .join(", ");
-            let text = theme.fg("toolTitle", theme.bold("questionnaire "));
+            let text = theme.fg("toolTitle", theme.bold("question "));
             text += theme.fg(
                 "muted",
                 `${count} question${count !== 1 ? "s" : ""}`,

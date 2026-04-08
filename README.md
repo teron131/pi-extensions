@@ -4,7 +4,7 @@ To load these into Pi, put them in `~/.pi/agent/extensions/`.
 
 **dynamic-truncation** keeps long sessions cheaper and faster by compacting old context and aggressively shrinking stale tool output. It also prunes repeated historical outputs, superseded file mutations, and resolved old errors before the next model call. A lot of harnesses can summarize history, but this one is better for coding work because it specifically preserves the things that matter for continuing implementation: changed files, commands, outputs, errors, and decisions, while trimming the giant old read/bash payloads that usually waste context.
 
-**questionnaire** gives Pi a structured way to ask for clarification with fixed choices, optional notes, and follow-up questions. Many agents can ask questions in plain chat, but this is better because it creates a clean UI flow for real decision points instead of producing another messy conversational branch that the model later has to reinterpret.
+**question** gives Pi a structured way to ask for clarification with fixed choices, optional notes, and follow-up questions. Many agents can ask questions in plain chat, but this is better because it creates a clean UI flow for real decision points instead of producing another messy conversational branch that the model later has to reinterpret.
 
 **path-guard** blocks writes to sensitive paths like env files, key files, config directories, and similar protected locations. Generic write guards often feel too broad or too weak; this one is useful because it is tuned for the files that are actually dangerous in day-to-day local coding sessions, so you get a practical safety rail without overblocking normal repo work.
 
