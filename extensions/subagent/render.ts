@@ -609,7 +609,7 @@ export function renderSubagentResult(
             aggregateUsage(results),
             getResultsModelLabel(results) || undefined,
         );
-        return usage ? renderChecklistNote(`total: ${usage}`) : null;
+        return usage ? renderChecklistNote(usage) : null;
     };
     const addExpandedStageRow = (
         container: Container,

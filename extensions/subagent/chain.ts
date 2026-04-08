@@ -70,6 +70,13 @@ function formatTokens(count: number): string {
     return `${(count / 1000000).toFixed(1)}M`;
 }
 
+function formatPercent(part: number, total: number): string | null {
+    if (total <= 0) return null;
+    const pct = (part / total) * 100;
+    if (pct >= 99.5 && pct < 100) return `${pct.toFixed(1)}%`;
+    return `${Math.round(pct)}%`;
+}
+
 export function formatUsageStats(
     usage: {
         input: number;
@@ -83,18 +90,33 @@ export function formatUsageStats(
     model?: string,
 ): string {
     const parts: string[] = [];
-    if (usage.turns)
-        parts.push(`${usage.turns} turn${usage.turns > 1 ? "s" : ""}`);
-    if (usage.input) parts.push(`↑${formatTokens(usage.input)}`);
-    if (usage.output) parts.push(`↓${formatTokens(usage.output)}`);
-    if (usage.cacheRead) parts.push(`R${formatTokens(usage.cacheRead)}`);
-    if (usage.cacheWrite) parts.push(`W${formatTokens(usage.cacheWrite)}`);
-    if (usage.cost) parts.push(`$${usage.cost.toFixed(4)}`);
-    if (usage.contextTokens && usage.contextTokens > 0) {
-        parts.push(`ctx:${formatTokens(usage.contextTokens)}`);
+
+    if (model) {
+        const match = model.match(/^\(([^)]+)\)\s*(.+)$/);
+        if (match) {
+            parts.push(`🤖${match[2]} [${match[1]}]`);
+        } else {
+            parts.push(`🤖${model}`);
+        }
     }
-    if (model) parts.push(model);
-    return parts.join(" ");
+
+    const totalInput = (usage.input || 0) + (usage.cacheRead || 0);
+    if (totalInput > 0) parts.push(`⬆️ ${formatTokens(totalInput)}`);
+    if (usage.output) parts.push(`⬇️ ${formatTokens(usage.output)}`);
+    
+    if (usage.cacheRead) {
+        const cacheShare = formatPercent(usage.cacheRead, totalInput);
+        if (cacheShare) parts.push(`💾${cacheShare}`);
+    }
+    
+    if (usage.contextTokens && usage.contextTokens > 0) {
+        parts.push(`📐${formatTokens(usage.contextTokens)}`);
+    }
+    
+    if (usage.cost) parts.push(`💸$${usage.cost.toFixed(3)}`);
+    if (usage.turns) parts.push(`💬${usage.turns}`);
+
+    return parts.join("  ");
 }
 
 export function isBlankTask(task: DelegatedTask): boolean {
