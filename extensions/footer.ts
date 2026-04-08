@@ -86,9 +86,9 @@ export function formatFooterModel(model?: string): string | null {
     if (!model) return null;
     const match = model.match(/^\(([^)]+)\)\s*(.+)$/);
     if (match) {
-        return `🤖${match[2]} [${match[1]}]`;
+        return `🤖 ${match[2]} [${match[1]}]`;
     }
-    return `🤖${model}`;
+    return `🤖 ${model}`;
 }
 
 export function getFooterMetricParts(options: FooterMetricsOptions): string[] {
@@ -105,7 +105,7 @@ export function getFooterMetricParts(options: FooterMetricsOptions): string[] {
 
     if (cacheRead || options.showZeroCache) {
         const cacheShare = formatPercent(cacheRead, totalInput) || "0%";
-        parts.push(`💾${cacheShare}`);
+        parts.push(`💾 ${cacheShare}`);
     }
 
     const contextText =
@@ -115,12 +115,12 @@ export function getFooterMetricParts(options: FooterMetricsOptions): string[] {
             : options.showZeroContext && options.contextTokens !== undefined
               ? formatTokens(options.contextTokens)
               : null);
-    if (contextText !== null) parts.push(`📐${contextText}`);
+    if (contextText !== null) parts.push(`📐 ${contextText}`);
 
     const cost = options.cost ?? 0;
-    parts.push(`💸$${cost.toFixed(3)}`);
+    parts.push(`💸 $${cost.toFixed(3)}`);
     if (options.count !== undefined && `${options.count}`.length > 0) {
-        parts.push(`💬${options.count}`);
+        parts.push(`💬 ${options.count}`);
     }
 
     return parts;
@@ -265,8 +265,8 @@ export default function (pi: ExtensionAPI) {
 
                     // --- TOP LINE (Model & Session) ---
                     let modelSide = ctx.model
-                        ? `🤖${ctx.model.id}`
-                        : "🤖no-model";
+                        ? `🤖 ${ctx.model.id}`
+                        : "🤖 no-model";
                     if (
                         footerData.getAvailableProviderCount() > 1 &&
                         ctx.model
@@ -312,8 +312,8 @@ export default function (pi: ExtensionAPI) {
                     if (ctx.model?.reasoning) {
                         modelSide +=
                             currentThinkingLevel === "off"
-                                ? ` 🧠off`
-                                : ` 🧠${currentThinkingLevel}`;
+                                ? ` 🧠 off`
+                                : ` 🧠 ${currentThinkingLevel}`;
                     }
 
                     let sessionSide = "";
@@ -362,8 +362,8 @@ export default function (pi: ExtensionAPI) {
 
                     const timeStr = formatRunTime(currentRunTimeMs);
                     sessionSide += sessionSide
-                        ? ` ⏳${timeStr}`
-                        : `⏳${timeStr}`;
+                        ? ` ⏳ ${timeStr}`
+                        : `⏳ ${timeStr}`;
 
                     // --- BOTTOM LINE (Stats & Statuses) ---
                     const tokensDisplay =
