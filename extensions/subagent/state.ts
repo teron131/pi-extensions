@@ -1,7 +1,7 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
-import { Key, truncateToWidth } from "@mariozechner/pi-tui";
+import { Key, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { formatPercent, formatTokens } from "../footer.js";
 import type { SingleResult } from "./chain.js";
-import { formatUsageStats } from "./chain.js";
 
 export const SUBAGENT_WIDGET_ID = "subagent-widget";
 export const SUBAGENT_WIDGET_TOGGLE_SHORTCUT = Key.ctrlShift("s");
@@ -108,6 +108,45 @@ export function isAgentRunning(name: string): boolean {
     return (runningAgents.get(name) || 0) > 0;
 }
 
+function padVisible(text: string, width: number): string {
+    const textWidth = visibleWidth(text);
+    if (textWidth >= width) {
+        return text;
+    }
+    return `${text}${" ".repeat(width - textWidth)}`;
+}
+
+function formatCacheReadValue(cacheRead: number, input: number): string {
+    if (cacheRead === 0) {
+        return "0%";
+    }
+
+    const totalInput = input + cacheRead;
+    const cacheShare = formatPercent(cacheRead, totalInput);
+    return cacheShare || formatTokens(cacheRead);
+}
+
+function formatUsageColumns(stats: SubagentStats): {
+    runs: string;
+    input: string;
+    output: string;
+    cacheRead: string;
+    contextTokens: string;
+    cost: string;
+    turns: string;
+} {
+    const fails = stats.failures > 0 ? ` (${stats.failures} failed)` : "";
+    return {
+        runs: `${stats.runs} run${stats.runs > 1 ? "s" : ""}${fails}`,
+        input: `⬆️ ${formatTokens(stats.input)}`,
+        output: `⬇️ ${formatTokens(stats.output)}`,
+        cacheRead: `💾${formatCacheReadValue(stats.cacheRead, stats.input)}`,
+        contextTokens: `📐${formatTokens(stats.contextTokens)}`,
+        cost: `💸$${stats.cost.toFixed(3)}`,
+        turns: `💬${stats.turns}`,
+    };
+}
+
 export function renderSubagentWidgetLines(
     theme: Theme,
     width: number,
@@ -124,12 +163,10 @@ export function renderSubagentWidgetLines(
         ? theme.fg("dim", "(Ctrl+Shift+S collapse)")
         : theme.fg("dim", "(Ctrl+Shift+S expand)");
 
-    let summary = "";
-    if (runningCount > 0) {
-        summary = `${runningCount} running`;
-    } else {
-        summary = `${statsArray.length} agent${statsArray.length > 1 ? "s" : ""}`;
-    }
+    const summary =
+        runningCount > 0
+            ? `${runningCount} running`
+            : `${statsArray.length} agent${statsArray.length > 1 ? "s" : ""}`;
 
     lines.push(
         truncateToWidth(
@@ -139,58 +176,90 @@ export function renderSubagentWidgetLines(
     );
 
     const displayed = widgetExpanded ? statsArray : statsArray.slice(0, 3);
+    const rows = displayed.map((stats) => ({
+        stats,
+        running: isAgentRunning(stats.name),
+        usage: formatUsageColumns(stats),
+    }));
 
-    for (const stats of displayed) {
-        const running = isAgentRunning(stats.name);
-        const icon = running
-            ? theme.fg("warning", "⏳")
-            : theme.fg("success", "✓");
-        const nameText = theme.fg(running ? "warning" : "accent", stats.name);
+    const columnWidths = {
+        name: Math.max(0, ...rows.map((row) => visibleWidth(row.stats.name))),
+        runs: Math.max(0, ...rows.map((row) => visibleWidth(row.usage.runs))),
+        input: Math.max(0, ...rows.map((row) => visibleWidth(row.usage.input))),
+        output: Math.max(
+            0,
+            ...rows.map((row) => visibleWidth(row.usage.output)),
+        ),
+        cacheRead: Math.max(
+            0,
+            ...rows.map((row) => visibleWidth(row.usage.cacheRead)),
+        ),
+        contextTokens: Math.max(
+            0,
+            ...rows.map((row) => visibleWidth(row.usage.contextTokens)),
+        ),
+        cost: Math.max(0, ...rows.map((row) => visibleWidth(row.usage.cost))),
+        turns: Math.max(0, ...rows.map((row) => visibleWidth(row.usage.turns))),
+    };
 
-        let statsText = "";
-        if (stats.runs > 0) {
-            const usageText = formatUsageStats(
-                {
-                    input: stats.input,
-                    output: stats.output,
-                    cacheRead: stats.cacheRead,
-                    cacheWrite: stats.cacheWrite,
-                    cost: stats.cost,
-                    contextTokens: stats.contextTokens,
-                    turns: stats.turns,
-                },
-                undefined,
-            );
-
-            const fails =
-                stats.failures > 0
-                    ? theme.fg("error", ` (${stats.failures} failed)`)
-                    : "";
-            statsText =
-                theme.fg(
-                    "dim",
-                    `${stats.runs} run${stats.runs > 1 ? "s" : ""}${fails} • `,
-                ) + theme.fg("muted", usageText);
-        } else if (running) {
-            statsText = theme.fg("dim", "running...");
-        }
+    for (const { stats, running, usage } of rows) {
+        const statusGlyph = running ? "⏳" : "✓";
+        const statusText = theme.fg(
+            running ? "warning" : "success",
+            padVisible(statusGlyph, 2),
+        );
+        const nameText = theme.fg(
+            running ? "warning" : "accent",
+            padVisible(stats.name, columnWidths.name),
+        );
+        const runsText = theme.fg(
+            stats.failures > 0 ? "error" : "dim",
+            padVisible(usage.runs, columnWidths.runs),
+        );
+        const inputText = theme.fg(
+            "muted",
+            padVisible(usage.input, columnWidths.input),
+        );
+        const outputText = theme.fg(
+            "muted",
+            padVisible(usage.output, columnWidths.output),
+        );
+        const cacheText = theme.fg(
+            "muted",
+            padVisible(usage.cacheRead, columnWidths.cacheRead),
+        );
+        const contextText = theme.fg(
+            "muted",
+            padVisible(usage.contextTokens, columnWidths.contextTokens),
+        );
+        const costText = theme.fg(
+            "muted",
+            padVisible(usage.cost, columnWidths.cost),
+        );
+        const turnsText = theme.fg(
+            "muted",
+            padVisible(usage.turns, columnWidths.turns),
+        );
 
         lines.push(
-            truncateToWidth(`  ${icon} ${nameText} ${statsText}`, width),
+            truncateToWidth(
+                `  ${statusText} ${nameText}  ${runsText}  ${inputText}  ${outputText}  ${cacheText}  ${contextText}  ${costText}  ${turnsText}`,
+                width,
+            ),
         );
     }
 
-    // Also show agents that are running but have 0 past runs
+    // Also show agents that are running but have 0 past runs.
     if (runningAgents.size > 0) {
         for (const [name, count] of runningAgents.entries()) {
             if (!aggregatedStats.has(name)) {
-                const icon = theme.fg("warning", "⏳");
+                const statusText = theme.fg("warning", padVisible("⏳", 2));
                 const nameText = theme.fg("warning", name);
                 const countText = count > 1 ? ` (${count})` : "";
                 const statsText = theme.fg("dim", `running${countText}...`);
                 lines.push(
                     truncateToWidth(
-                        `  ${icon} ${nameText} ${statsText}`,
+                        `  ${statusText} ${nameText} ${statsText}`,
                         width,
                     ),
                 );
