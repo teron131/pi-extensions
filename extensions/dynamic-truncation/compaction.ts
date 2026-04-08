@@ -14,7 +14,7 @@ import {
 
 const COMPACTION_PROVIDER = "opencode";
 const COMPACTION_MODEL_ID = "gpt-5.4-nano";
-const COMPACT_AT_TOKENS = 100_000;
+const COMPACT_AT_TOKENS = 75_000;
 const COMMAND_NAME = "dynamic-truncation";
 const USER_MESSAGES_TO_KEEP = 5;
 const BACKGROUND_SUMMARY_INSTRUCTIONS =
@@ -405,7 +405,7 @@ export function registerCompactionHooks(pi: ExtensionAPI): void {
 
     pi.registerCommand(COMMAND_NAME, {
         description:
-            "Trigger background truncation/compaction after 100k tokens or 5 user messages (provider=... model=... [instructions])",
+            "Trigger background truncation/compaction after 75k tokens or 5 user messages (provider=... model=... [instructions])",
         handler: async (args, ctx) => {
             const request = parseCompactionRequest(args);
             triggerCompaction(ctx, request);
