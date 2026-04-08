@@ -143,15 +143,16 @@ Chain steps can reference earlier results with these placeholders:
 The subagent extension now also emits a separate final display message for the user, so the delegated result is visible in the conversation itself and not only inside the tool result UI.
 
 **Collapsed view** (default):
-- Status icon (✓/✗/⏳/◐) and agent or workflow name
+- Checklist-style rows aligned with the todo list UI: numbered items, status icons, and `↳` note lines
 - Running single/chain/parallel executions now show explicit in-progress state instead of looking complete or failed too early
-- Last 5-10 items (tool calls and text)
-- Usage stats: `3 turns ↑input ↓output RcacheRead WcacheWrite $cost ctx:contextTokens model`
+- Chain mode includes pending future steps, so the workflow reads more like a live checklist
+- Each row shows a compact latest-output or latest-tool-call preview instead of a loose text dump
+- Usage stats still appear as compact note lines: `3 turns ↑input ↓output RcacheRead WcacheWrite $cost ctx:contextTokens model`
 
 **Expanded view** (Ctrl+O):
-- Full task text
-- All tool calls with formatted arguments
-- Final output rendered as Markdown
+- Keeps the same checklist-style structure, but with fuller task notes and stage metadata
+- All tool calls remain visible with formatted arguments
+- Final output is still rendered as Markdown
 - Per-task usage (for chain/parallel)
 - Rich agent discovery details when using `action: "list"`
 - Parallel runs stay expanded while still running, so you can watch each task progress in place

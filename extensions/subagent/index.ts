@@ -209,12 +209,19 @@ interface TaskSpec {
 
 interface ChainStepSpec extends TaskSpec {}
 
+interface PlannedStage {
+    agent: string;
+    task: string;
+    step?: number;
+}
+
 interface SubagentDetails {
     mode: "list" | "single" | "parallel" | "chain";
     agentScope: AgentScope;
     projectAgentsDir: string | null;
     warnings: string[];
     availableAgents?: AgentConfig[];
+    plannedStages?: PlannedStage[];
     results: SingleResult[];
 }
 
@@ -806,7 +813,7 @@ async function runSingleAgent(
         agent: agent.name,
         agentSource: agent.source,
         task: displayTask,
-        exitCode: 0,
+        exitCode: -1,
         messages: [],
         stderr: "",
         usage: {
@@ -1227,6 +1234,38 @@ export default function (pi: ExtensionAPI) {
                 }
             });
 
+            const singlePlannedStages: PlannedStage[] = hasSingle
+                ? [
+                      {
+                          agent: executionParams.agent!,
+                          task: formatDelegatedTaskForDisplay(
+                              executionParams.task!,
+                          ),
+                          step: 1,
+                      },
+                  ]
+                : [];
+            const chainPlannedStages: PlannedStage[] = chainSteps.map(
+                (step, index) => ({
+                    agent: step.agent,
+                    task: formatDelegatedTaskForDisplay(step.task),
+                    step: index + 1,
+                }),
+            );
+            const parallelPlannedStages: PlannedStage[] = parallelTasks.map(
+                (task, index) => ({
+                    agent: task.agent,
+                    task: formatDelegatedTaskForDisplay(task.task),
+                    step: index + 1,
+                }),
+            );
+            const getPlannedStages = (
+                mode: "single" | "parallel" | "chain",
+            ): PlannedStage[] => {
+                if (mode === "chain") return chainPlannedStages;
+                if (mode === "parallel") return parallelPlannedStages;
+                return singlePlannedStages;
+            };
             const makeDetails =
                 (mode: "single" | "parallel" | "chain") =>
                 (results: SingleResult[]): SubagentDetails => ({
@@ -1235,6 +1274,7 @@ export default function (pi: ExtensionAPI) {
                     projectAgentsDir: discovery.projectAgentsDir,
                     warnings: discovery.warnings,
                     availableAgents: agents,
+                    plannedStages: getPlannedStages(mode),
                     results,
                 });
 
@@ -1690,19 +1730,109 @@ export default function (pi: ExtensionAPI) {
                     container.addChild(new Text(warning, 0, 0));
                 }
             };
-            const getStageIcon = (stage: SingleResult): string => {
-                if (isResultRunning(stage)) return theme.fg("warning", "⏳");
-                if (isResultSuccess(stage)) return theme.fg("success", "✓");
-                return theme.fg("error", "✗");
+            const compactText = (text: string, maxLength: number) => {
+                const flattened = text.replace(/\s+/g, " ").trim();
+                if (flattened.length <= maxLength) return flattened;
+                return `${flattened.slice(0, maxLength - 3)}...`;
             };
-            const renderStageEmptyState = (stage: SingleResult): string => {
-                if (isResultRunning(stage)) {
-                    return theme.fg("warning", "(running...)");
+            type ChecklistState = "pending" | "running" | "done" | "failed";
+            const getChecklistState = (
+                stage?: SingleResult,
+            ): ChecklistState => {
+                if (!stage) return "pending";
+                if (isResultRunning(stage)) return "running";
+                if (isResultSuccess(stage)) return "done";
+                return "failed";
+            };
+            const getChecklistIcon = (state: ChecklistState): string => {
+                switch (state) {
+                    case "running":
+                        return theme.fg("warning", "⏳");
+                    case "done":
+                        return theme.fg("success", "✓");
+                    case "failed":
+                        return theme.fg("error", "✗");
+                    default:
+                        return theme.fg("dim", "○");
+                }
+            };
+            const getChecklistLabel = (
+                state: ChecklistState,
+                label: string,
+            ): string => {
+                switch (state) {
+                    case "done":
+                        return theme.fg("dim", label);
+                    case "failed":
+                        return theme.fg("error", label);
+                    default:
+                        return theme.fg("accent", label);
+                }
+            };
+            const renderChecklistLine = (options: {
+                label: string;
+                state: ChecklistState;
+                position?: number;
+                meta?: string;
+            }): string => {
+                const prefix =
+                    options.position !== undefined
+                        ? `  ${theme.fg("dim", `${options.position}.`)} `
+                        : "  ";
+                const metaText = options.meta
+                    ? theme.fg("muted", ` ${options.meta}`)
+                    : "";
+                return `${prefix}${getChecklistIcon(options.state)} ${getChecklistLabel(options.state, options.label)}${metaText}`;
+            };
+            const renderChecklistNote = (
+                text: string,
+                color: "dim" | "muted" | "warning" | "error" = "dim",
+            ): string => {
+                return `     ${theme.fg("muted", "↳ ")}${theme.fg(color, text)}`;
+            };
+            const renderChecklistRichNote = (content: string): string => {
+                return `     ${theme.fg("muted", "↳ ")}${content}`;
+            };
+            const getStagePreviewNote = (
+                stage: SingleResult | undefined,
+                displayItems: DisplayItem[],
+                finalOutput: string,
+            ): string => {
+                if (!stage) {
+                    return renderChecklistNote("awaiting earlier steps");
                 }
                 if (isResultError(stage)) {
-                    return theme.fg("error", getResultErrorText(stage));
+                    return renderChecklistNote(
+                        compactText(getResultErrorText(stage), 140),
+                        "error",
+                    );
                 }
-                return theme.fg("muted", "(no output)");
+                if (finalOutput) {
+                    return renderChecklistNote(
+                        compactText(finalOutput, 140),
+                        isResultRunning(stage) ? "warning" : "dim",
+                    );
+                }
+                const latestItem = displayItems.at(-1);
+                if (!latestItem) {
+                    if (isResultRunning(stage)) {
+                        return renderChecklistNote("running...", "warning");
+                    }
+                    return renderChecklistNote("no output yet");
+                }
+                if (latestItem.type === "toolCall") {
+                    return renderChecklistRichNote(
+                        formatToolCall(
+                            latestItem.name,
+                            latestItem.args,
+                            theme.fg.bind(theme),
+                        ),
+                    );
+                }
+                return renderChecklistNote(
+                    compactText(latestItem.text, 140),
+                    isResultRunning(stage) ? "warning" : "dim",
+                );
             };
             const maybeAddStageOutput = (
                 container: Container,
@@ -1724,12 +1854,13 @@ export default function (pi: ExtensionAPI) {
                     if (item.type === "toolCall") {
                         container.addChild(
                             new Text(
-                                theme.fg("muted", "→ ") +
+                                renderChecklistRichNote(
                                     formatToolCall(
                                         item.name,
                                         item.args,
                                         theme.fg.bind(theme),
                                     ),
+                                ),
                                 0,
                                 0,
                             ),
@@ -1747,106 +1878,48 @@ export default function (pi: ExtensionAPI) {
 
             if (details.mode === "list") {
                 const availableAgents = details.availableAgents ?? [];
-                const countLabel = `${availableAgents.length} agent${availableAgents.length === 1 ? "" : "s"}`;
-                const title =
+                const countLabel = `${availableAgents.length} available`;
+                let text =
                     theme.fg("toolTitle", theme.bold("subagent ")) +
                     theme.fg("accent", "list") +
                     theme.fg("muted", ` [${details.agentScope}]`);
-
-                if (expanded) {
-                    const container = new Container();
-                    container.addChild(new Text(title, 0, 0));
-                    container.addChild(
-                        new Text(theme.fg("dim", countLabel), 0, 0),
-                    );
-                    if (
-                        details.projectAgentsDir &&
-                        details.agentScope !== "user"
-                    ) {
-                        container.addChild(
-                            new Text(
-                                theme.fg("muted", "Project agents: ") +
-                                    theme.fg(
-                                        "dim",
-                                        shortenHomePath(
-                                            details.projectAgentsDir,
-                                        ),
-                                    ),
-                                0,
-                                0,
-                            ),
-                        );
-                    }
-                    addWarningsToContainer(container);
-
-                    for (const agent of availableAgents) {
-                        const model =
-                            agent.provider && agent.model
-                                ? `${agent.provider}/${agent.model}`
-                                : agent.model ||
-                                  agent.provider ||
-                                  "session-default";
-                        const tools =
-                            agent.tools?.join(", ") || "session-default";
-                        container.addChild(new Spacer(1));
-                        container.addChild(
-                            new Text(
-                                theme.fg("accent", agent.name) +
-                                    theme.fg("muted", ` (${agent.source})`),
-                                0,
-                                0,
-                            ),
-                        );
-                        container.addChild(
-                            new Text(
-                                theme.fg("toolOutput", agent.description),
-                                0,
-                                0,
-                            ),
-                        );
-                        container.addChild(
-                            new Text(
-                                theme.fg("muted", "Model: ") +
-                                    theme.fg("dim", model),
-                                0,
-                                0,
-                            ),
-                        );
-                        container.addChild(
-                            new Text(
-                                theme.fg("muted", "Tools: ") +
-                                    theme.fg("dim", tools),
-                                0,
-                                0,
-                            ),
-                        );
-                        container.addChild(
-                            new Text(
-                                theme.fg("muted", "File: ") +
-                                    theme.fg(
-                                        "dim",
-                                        shortenHomePath(agent.filePath),
-                                    ),
-                                0,
-                                0,
-                            ),
-                        );
-                    }
-                    return container;
-                }
-
-                let text = `${title} ${theme.fg("accent", countLabel)}`;
+                text += `\n${theme.fg("muted", countLabel)}`;
                 if (details.projectAgentsDir && details.agentScope !== "user") {
-                    text += `\n${theme.fg("muted", "project: ")}${theme.fg("dim", shortenHomePath(details.projectAgentsDir))}`;
+                    text += `\n${renderChecklistNote(`project agents: ${shortenHomePath(details.projectAgentsDir)}`)}`;
                 }
                 if (warningsText.length > 0) {
                     text += `\n${warningsText.join("\n")}`;
                 }
-                for (const agent of availableAgents.slice(0, 5)) {
-                    text += `\n\n${theme.fg("accent", agent.name)}${theme.fg("muted", ` (${agent.source})`)}\n${theme.fg("dim", agent.description)}`;
+
+                const visibleAgents = expanded
+                    ? availableAgents
+                    : availableAgents.slice(0, 5);
+                for (const [index, agent] of visibleAgents.entries()) {
+                    const model =
+                        agent.provider && agent.model
+                            ? `${agent.provider}/${agent.model}`
+                            : agent.model ||
+                              agent.provider ||
+                              "session-default";
+                    const tools = agent.tools?.join(", ") || "session-default";
+                    text += `\n${renderChecklistLine({
+                        label: agent.name,
+                        state: "pending",
+                        position: index + 1,
+                        meta: `(${agent.source})`,
+                    })}`;
+                    text += `\n${renderChecklistNote(agent.description)}`;
+                    if (expanded) {
+                        text += `\n${renderChecklistNote(`model: ${model}`)}`;
+                        text += `\n${renderChecklistNote(`tools: ${tools}`)}`;
+                        text += `\n${renderChecklistNote(`file: ${shortenHomePath(agent.filePath)}`)}`;
+                    }
                 }
-                if (availableAgents.length > 5) {
-                    text += `\n\n${theme.fg("muted", `... +${availableAgents.length - 5} more`)}`;
+                if (
+                    !expanded &&
+                    availableAgents.length > visibleAgents.length
+                ) {
+                    text += `\n${theme.fg("muted", `... ${availableAgents.length - visibleAgents.length} more`)}`;
                 }
                 if (!expanded && availableAgents.length > 0) {
                     text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
@@ -1863,128 +1936,156 @@ export default function (pi: ExtensionAPI) {
                 );
             }
 
-            const renderDisplayItems = (
-                items: DisplayItem[],
-                limit?: number,
-            ) => {
-                const toShow = limit ? items.slice(-limit) : items;
-                const skipped =
-                    limit && items.length > limit ? items.length - limit : 0;
-                let text = "";
-                if (skipped > 0)
-                    text += theme.fg("muted", `... ${skipped} earlier items\n`);
-                for (const item of toShow) {
-                    if (item.type === "text") {
-                        const preview = expanded
-                            ? item.text
-                            : item.text.split("\n").slice(0, 3).join("\n");
-                        text += `${theme.fg("toolOutput", preview)}\n`;
-                    } else {
-                        text += `${theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme))}\n`;
-                    }
-                }
-                return text.trimEnd();
-            };
-
             if (details.mode === "single" && details.results.length === 1) {
                 const r = details.results[0];
-                const isRunning = isResultRunning(r);
-                const isError = isResultError(r);
-                const icon = getStageIcon(r);
+                const state = getChecklistState(r);
                 const displayItems = getDisplayItems(r.messages);
                 const finalOutput = getFinalOutput(r.messages);
+                const usageStr = formatUsageStats(r.usage, r.model);
+                const statusLabel =
+                    isResultRunning(r) || isPartial
+                        ? "running"
+                        : isResultError(r)
+                          ? getResultStatusLabel(r)
+                          : "completed";
 
                 if (expanded) {
                     const container = new Container();
-                    let header = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
-                    if (isRunning || isPartial) {
-                        header += ` ${theme.fg("warning", "[running]")}`;
-                    } else if (isError && r.stopReason) {
-                        header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
+                    container.addChild(
+                        new Text(
+                            theme.fg("toolTitle", theme.bold("subagent ")) +
+                                theme.fg("accent", r.agent) +
+                                theme.fg("muted", ` • ${statusLabel}`),
+                            0,
+                            0,
+                        ),
+                    );
+                    addWarningsToContainer(container);
+                    container.addChild(new Spacer(1));
+                    container.addChild(
+                        new Text(
+                            renderChecklistLine({
+                                label: r.agent,
+                                state,
+                                position: 1,
+                                meta: `(${r.agentSource})`,
+                            }),
+                            0,
+                            0,
+                        ),
+                    );
+                    container.addChild(
+                        new Text(
+                            renderChecklistNote(compactText(r.task, 220)),
+                            0,
+                            0,
+                        ),
+                    );
+                    if (usageStr) {
+                        container.addChild(
+                            new Text(renderChecklistNote(usageStr), 0, 0),
+                        );
                     }
-                    container.addChild(new Text(header, 0, 0));
-                    if (isError && r.errorMessage)
+                    if (isResultError(r) && r.errorMessage) {
                         container.addChild(
                             new Text(
-                                theme.fg("error", `Error: ${r.errorMessage}`),
+                                renderChecklistNote(r.errorMessage, "error"),
                                 0,
                                 0,
                             ),
                         );
-                    addWarningsToContainer(container);
-                    container.addChild(new Spacer(1));
-                    container.addChild(
-                        new Text(theme.fg("muted", "─── Task ───"), 0, 0),
-                    );
-                    container.addChild(new Text(theme.fg("dim", r.task), 0, 0));
-                    container.addChild(new Spacer(1));
-                    container.addChild(
-                        new Text(theme.fg("muted", "─── Output ───"), 0, 0),
-                    );
+                    }
                     maybeAddStageOutput(
                         container,
                         r,
                         displayItems,
                         finalOutput,
                     );
-                    const usageStr = formatUsageStats(r.usage, r.model);
-                    if (usageStr) {
-                        container.addChild(new Spacer(1));
-                        container.addChild(
-                            new Text(theme.fg("dim", usageStr), 0, 0),
-                        );
-                    }
                     return container;
                 }
 
-                let text = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
-                if (isRunning || isPartial) {
-                    text += ` ${theme.fg("warning", "[running]")}`;
-                } else if (isError && r.stopReason) {
-                    text += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
-                }
+                let text =
+                    theme.fg("toolTitle", theme.bold("subagent ")) +
+                    theme.fg("accent", r.agent) +
+                    theme.fg("muted", ` • ${statusLabel}`);
                 if (warningsText.length > 0) {
                     text += `\n${warningsText.join("\n")}`;
                 }
-                if (isError && r.errorMessage)
-                    text += `\n${theme.fg("error", `Error: ${r.errorMessage}`)}`;
-                else if (displayItems.length === 0)
-                    text += `\n${renderStageEmptyState(r)}`;
-                else {
-                    text += `\n${renderDisplayItems(displayItems, COLLAPSED_ITEM_COUNT)}`;
-                    if (displayItems.length > COLLAPSED_ITEM_COUNT)
-                        text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
+                text += `\n${renderChecklistLine({
+                    label: r.agent,
+                    state,
+                    position: 1,
+                    meta: `(${r.agentSource})`,
+                })}`;
+                text += `\n${renderChecklistNote(compactText(r.task, 140))}`;
+                text += `\n${getStagePreviewNote(r, displayItems, finalOutput)}`;
+                if (usageStr) text += `\n${renderChecklistNote(usageStr)}`;
+                if (displayItems.length > COLLAPSED_ITEM_COUNT) {
+                    text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
                 }
-                const usageStr = formatUsageStats(r.usage, r.model);
-                if (usageStr) text += `\n${theme.fg("dim", usageStr)}`;
                 return new Text(text, 0, 0);
             }
 
             if (details.mode === "chain") {
-                const runningCount = details.results.filter((r) =>
-                    isResultRunning(r),
+                const plannedStages =
+                    details.plannedStages && details.plannedStages.length > 0
+                        ? details.plannedStages
+                        : details.results.map((r, index) => ({
+                              agent: r.agent,
+                              task: r.task,
+                              step: r.step ?? index + 1,
+                          }));
+                const rows = plannedStages.map((plannedStage, index) => {
+                    const stage = details.results.find(
+                        (resultStage) =>
+                            (resultStage.step ?? index + 1) ===
+                            (plannedStage.step ?? index + 1),
+                    );
+                    const displayItems = stage
+                        ? getDisplayItems(stage.messages)
+                        : [];
+                    const finalOutput = stage
+                        ? getFinalOutput(stage.messages)
+                        : "";
+                    return {
+                        position: plannedStage.step ?? index + 1,
+                        label: plannedStage.agent,
+                        task: plannedStage.task,
+                        stage,
+                        state: getChecklistState(stage),
+                        displayItems,
+                        finalOutput,
+                    };
+                });
+                const runningCount = rows.filter(
+                    (row) => row.state === "running",
                 ).length;
-                const successCount = details.results.filter((r) =>
-                    isResultSuccess(r),
+                const doneCount = rows.filter(
+                    (row) => row.state === "done",
                 ).length;
-                const failureCount = details.results.filter((r) =>
-                    isResultError(r),
+                const failedCount = rows.filter(
+                    (row) => row.state === "failed",
                 ).length;
-                const runningStage = details.results.find((r) =>
-                    isResultRunning(r),
-                );
+                const pendingCount = rows.filter(
+                    (row) => row.state === "pending",
+                ).length;
+                const runningRow = rows.find((row) => row.state === "running");
                 const status =
                     runningCount > 0
-                        ? `${successCount + failureCount}/${details.results.length} done, step ${runningStage?.step ?? "?"} running`
-                        : failureCount > 0
-                          ? `${successCount}/${details.results.length} succeeded, ${failureCount} failed`
-                          : `${successCount}/${details.results.length} steps`;
+                        ? `${doneCount + failedCount}/${rows.length} done, step ${runningRow?.position ?? "?"} running`
+                        : failedCount > 0
+                          ? `${doneCount}/${rows.length} succeeded, ${failedCount} failed`
+                          : pendingCount > 0
+                            ? `${doneCount}/${rows.length} done, ${pendingCount} pending`
+                            : `${doneCount}/${rows.length} completed`;
                 const icon =
                     runningCount > 0
                         ? theme.fg("warning", "⏳")
-                        : failureCount > 0
+                        : failedCount > 0
                           ? theme.fg("warning", "◐")
-                          : theme.fg("success", "✓");
+                          : pendingCount > 0
+                            ? theme.fg("dim", "○")
+                            : theme.fg("success", "✓");
 
                 if (expanded) {
                     const container = new Container();
@@ -1992,61 +2093,83 @@ export default function (pi: ExtensionAPI) {
                         new Text(
                             icon +
                                 " " +
-                                theme.fg("toolTitle", theme.bold("chain ")) +
-                                theme.fg("accent", status),
+                                theme.fg(
+                                    "toolTitle",
+                                    theme.bold("subagent chain"),
+                                ) +
+                                theme.fg("muted", ` • ${status}`),
                             0,
                             0,
                         ),
                     );
                     addWarningsToContainer(container);
 
-                    for (const r of details.results) {
-                        const rIcon = getStageIcon(r);
-                        const displayItems = getDisplayItems(r.messages);
-                        const finalOutput = getFinalOutput(r.messages);
-
+                    for (const row of rows) {
                         container.addChild(new Spacer(1));
                         container.addChild(
                             new Text(
-                                `${theme.fg("muted", `─── Step ${r.step}: `) + theme.fg("accent", r.agent)} ${rIcon}`,
+                                renderChecklistLine({
+                                    label: row.label,
+                                    state: row.state,
+                                    position: row.position,
+                                    meta: row.stage
+                                        ? `(${row.stage.agentSource})`
+                                        : undefined,
+                                }),
                                 0,
                                 0,
                             ),
                         );
                         container.addChild(
                             new Text(
-                                theme.fg("muted", "Task: ") +
-                                    theme.fg("dim", r.task),
+                                renderChecklistNote(compactText(row.task, 220)),
                                 0,
                                 0,
                             ),
                         );
 
-                        maybeAddStageOutput(
-                            container,
-                            r,
-                            displayItems,
-                            finalOutput,
-                        );
-
-                        if (isResultError(r)) {
+                        if (!row.stage) {
                             container.addChild(
                                 new Text(
-                                    theme.fg(
+                                    renderChecklistNote(
+                                        "awaiting earlier steps",
+                                    ),
+                                    0,
+                                    0,
+                                ),
+                            );
+                            continue;
+                        }
+
+                        const stepUsage = formatUsageStats(
+                            row.stage.usage,
+                            row.stage.model,
+                        );
+                        if (stepUsage) {
+                            container.addChild(
+                                new Text(renderChecklistNote(stepUsage), 0, 0),
+                            );
+                        }
+
+                        maybeAddStageOutput(
+                            container,
+                            row.stage,
+                            row.displayItems,
+                            row.finalOutput,
+                        );
+
+                        if (isResultError(row.stage)) {
+                            container.addChild(
+                                new Text(
+                                    renderChecklistNote(
+                                        getResultErrorText(row.stage),
                                         "error",
-                                        `Error: ${getResultErrorText(r)}`,
                                     ),
                                     0,
                                     0,
                                 ),
                             );
                         }
-
-                        const stepUsage = formatUsageStats(r.usage, r.model);
-                        if (stepUsage)
-                            container.addChild(
-                                new Text(theme.fg("dim", stepUsage), 0, 0),
-                            );
                     }
 
                     const models = Array.from(
@@ -2062,7 +2185,7 @@ export default function (pi: ExtensionAPI) {
                         container.addChild(new Spacer(1));
                         container.addChild(
                             new Text(
-                                theme.fg("dim", `Total: ${usageStr}`),
+                                renderChecklistNote(`total: ${usageStr}`),
                                 0,
                                 0,
                             ),
@@ -2071,24 +2194,32 @@ export default function (pi: ExtensionAPI) {
                     return container;
                 }
 
-                // Collapsed view
                 let text =
                     icon +
                     " " +
-                    theme.fg("toolTitle", theme.bold("chain ")) +
-                    theme.fg("accent", status);
+                    theme.fg("toolTitle", theme.bold("subagent chain")) +
+                    theme.fg("muted", ` • ${status}`);
                 if (warningsText.length > 0) {
                     text += `\n${warningsText.join("\n")}`;
                 }
-                for (const r of details.results) {
-                    const rIcon = getStageIcon(r);
-                    const displayItems = getDisplayItems(r.messages);
-                    text += `\n\n${theme.fg("muted", `─── Step ${r.step}: `)}${theme.fg("accent", r.agent)} ${rIcon}`;
-                    if (displayItems.length === 0) {
-                        text += `\n${renderStageEmptyState(r)}`;
-                    } else {
-                        text += `\n${renderDisplayItems(displayItems, 5)}`;
-                    }
+                for (const row of rows) {
+                    text += `\n${renderChecklistLine({
+                        label: row.label,
+                        state: row.state,
+                        position: row.position,
+                        meta: row.stage
+                            ? `(${row.stage.agentSource})`
+                            : undefined,
+                    })}`;
+                    text += `\n${
+                        row.stage
+                            ? getStagePreviewNote(
+                                  row.stage,
+                                  row.displayItems,
+                                  row.finalOutput,
+                              )
+                            : renderChecklistNote(compactText(row.task, 120))
+                    }`;
                 }
                 const models = Array.from(
                     new Set(
@@ -2099,95 +2230,109 @@ export default function (pi: ExtensionAPI) {
                     aggregateUsage(details.results),
                     models || undefined,
                 );
-                if (usageStr)
-                    text += `\n\n${theme.fg("dim", `Total: ${usageStr}`)}`;
+                if (usageStr) {
+                    text += `\n${renderChecklistNote(`total: ${usageStr}`)}`;
+                }
                 text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
                 return new Text(text, 0, 0);
             }
 
             if (details.mode === "parallel") {
-                const running = details.results.filter((r) =>
-                    isResultRunning(r),
+                const rows = details.results.map((stage, index) => ({
+                    position: index + 1,
+                    label: stage.agent,
+                    task: stage.task,
+                    stage,
+                    state: getChecklistState(stage),
+                    displayItems: getDisplayItems(stage.messages),
+                    finalOutput: getFinalOutput(stage.messages),
+                }));
+                const runningCount = rows.filter(
+                    (row) => row.state === "running",
                 ).length;
-                const successCount = details.results.filter((r) =>
-                    isResultSuccess(r),
+                const doneCount = rows.filter(
+                    (row) => row.state === "done",
                 ).length;
-                const failCount = details.results.filter((r) =>
-                    isResultError(r),
+                const failedCount = rows.filter(
+                    (row) => row.state === "failed",
                 ).length;
-                const isRunning = running > 0;
-                const icon = isRunning
-                    ? theme.fg("warning", "⏳")
-                    : failCount > 0
-                      ? theme.fg("warning", "◐")
-                      : theme.fg("success", "✓");
-                const status = isRunning
-                    ? `${successCount + failCount}/${details.results.length} done, ${running} running`
-                    : failCount > 0
-                      ? `${successCount}/${details.results.length} succeeded, ${failCount} failed`
-                      : `${successCount}/${details.results.length} tasks`;
+                const icon =
+                    runningCount > 0
+                        ? theme.fg("warning", "⏳")
+                        : failedCount > 0
+                          ? theme.fg("warning", "◐")
+                          : theme.fg("success", "✓");
+                const status =
+                    runningCount > 0
+                        ? `${doneCount + failedCount}/${rows.length} done, ${runningCount} running`
+                        : failedCount > 0
+                          ? `${doneCount}/${rows.length} succeeded, ${failedCount} failed`
+                          : `${doneCount}/${rows.length} completed`;
 
                 if (expanded) {
                     const container = new Container();
                     container.addChild(
                         new Text(
-                            `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`,
+                            `${icon} ${theme.fg("toolTitle", theme.bold("subagent parallel"))}${theme.fg("muted", ` • ${status}`)}`,
                             0,
                             0,
                         ),
                     );
                     addWarningsToContainer(container);
 
-                    for (const r of details.results) {
-                        const rIcon = getStageIcon(r);
-                        const displayItems = getDisplayItems(r.messages);
-                        const finalOutput = getFinalOutput(r.messages);
-
+                    for (const row of rows) {
                         container.addChild(new Spacer(1));
                         container.addChild(
                             new Text(
-                                `${theme.fg("muted", "─── ") + theme.fg("accent", r.agent)} ${rIcon}`,
+                                renderChecklistLine({
+                                    label: row.label,
+                                    state: row.state,
+                                    position: row.position,
+                                    meta: `(${row.stage.agentSource})`,
+                                }),
                                 0,
                                 0,
                             ),
                         );
                         container.addChild(
                             new Text(
-                                theme.fg("muted", "Task: ") +
-                                    theme.fg("dim", r.task),
+                                renderChecklistNote(compactText(row.task, 220)),
                                 0,
                                 0,
                             ),
                         );
+                        const taskUsage = formatUsageStats(
+                            row.stage.usage,
+                            row.stage.model,
+                        );
+                        if (taskUsage) {
+                            container.addChild(
+                                new Text(renderChecklistNote(taskUsage), 0, 0),
+                            );
+                        }
 
                         maybeAddStageOutput(
                             container,
-                            r,
-                            displayItems,
-                            finalOutput,
+                            row.stage,
+                            row.displayItems,
+                            row.finalOutput,
                         );
 
-                        if (isResultError(r)) {
+                        if (isResultError(row.stage)) {
                             container.addChild(
                                 new Text(
-                                    theme.fg(
+                                    renderChecklistNote(
+                                        getResultErrorText(row.stage),
                                         "error",
-                                        `Error: ${getResultErrorText(r)}`,
                                     ),
                                     0,
                                     0,
                                 ),
                             );
                         }
-
-                        const taskUsage = formatUsageStats(r.usage, r.model);
-                        if (taskUsage)
-                            container.addChild(
-                                new Text(theme.fg("dim", taskUsage), 0, 0),
-                            );
                     }
 
-                    if (!isRunning) {
+                    if (runningCount === 0) {
                         const models = Array.from(
                             new Set(
                                 details.results
@@ -2203,7 +2348,7 @@ export default function (pi: ExtensionAPI) {
                             container.addChild(new Spacer(1));
                             container.addChild(
                                 new Text(
-                                    theme.fg("dim", `Total: ${usageStr}`),
+                                    renderChecklistNote(`total: ${usageStr}`),
                                     0,
                                     0,
                                 ),
@@ -2213,30 +2358,24 @@ export default function (pi: ExtensionAPI) {
                     return container;
                 }
 
-                // Collapsed view (or still running)
-                let text = `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`;
+                let text = `${icon} ${theme.fg("toolTitle", theme.bold("subagent parallel"))}${theme.fg("muted", ` • ${status}`)}`;
                 if (warningsText.length > 0) {
                     text += `\n${warningsText.join("\n")}`;
                 }
-                for (const r of details.results) {
-                    const rIcon = isResultRunning(r)
-                        ? theme.fg("warning", "⏳")
-                        : isResultSuccess(r)
-                          ? theme.fg("success", "✓")
-                          : theme.fg("error", "✗");
-                    const displayItems = getDisplayItems(r.messages);
-                    text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)} ${rIcon}`;
-                    if (displayItems.length === 0) {
-                        text += isResultRunning(r)
-                            ? `\n${theme.fg("muted", "(running...)")}`
-                            : isResultError(r)
-                              ? `\n${theme.fg("error", getResultErrorText(r))}`
-                              : `\n${theme.fg("muted", "(no output)")}`;
-                    } else {
-                        text += `\n${renderDisplayItems(displayItems, 5)}`;
-                    }
+                for (const row of rows) {
+                    text += `\n${renderChecklistLine({
+                        label: row.label,
+                        state: row.state,
+                        position: row.position,
+                        meta: `(${row.stage.agentSource})`,
+                    })}`;
+                    text += `\n${getStagePreviewNote(
+                        row.stage,
+                        row.displayItems,
+                        row.finalOutput,
+                    )}`;
                 }
-                if (!isRunning) {
+                if (runningCount === 0) {
                     const models = Array.from(
                         new Set(
                             details.results.map((r) => r.model).filter(Boolean),
@@ -2246,11 +2385,11 @@ export default function (pi: ExtensionAPI) {
                         aggregateUsage(details.results),
                         models || undefined,
                     );
-                    if (usageStr)
-                        text += `\n\n${theme.fg("dim", `Total: ${usageStr}`)}`;
+                    if (usageStr) {
+                        text += `\n${renderChecklistNote(`total: ${usageStr}`)}`;
+                    }
                 }
-                if (!expanded)
-                    text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
+                text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
                 return new Text(text, 0, 0);
             }
 
