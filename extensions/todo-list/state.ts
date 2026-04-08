@@ -45,6 +45,7 @@ export interface TodoDetails {
 export interface TodoToolParams {
     action: TodoAction;
     text?: string;
+    title?: string;
     note?: string;
     items?: TodoInput[];
     id?: number;
@@ -78,6 +79,9 @@ export const TodoParams = Type.Object({
     action: TodoActionSchema,
     text: Type.Optional(
         Type.String({ description: "Todo text (for single add)" }),
+    ),
+    title: Type.Optional(
+        Type.String({ description: "Todo title to remove using fuzzy match" }),
     ),
     note: Type.Optional(
         Type.String({ description: "Optional note or update text" }),
@@ -183,6 +187,126 @@ export function getOrderedTodos(todos: Todo[]): Todo[] {
 
 export function getOrderedVisibleTodos(todos: Todo[]): Todo[] {
     return getOrderedTodos(getVisibleTodos(todos));
+}
+
+function normalizeTodoSearchText(text: string): string {
+    return text
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/gi, " ")
+        .replace(/\s+/g, " ");
+}
+
+function levenshteinDistance(left: string, right: string): number {
+    if (left === right) {
+        return 0;
+    }
+
+    if (!left.length) {
+        return right.length;
+    }
+
+    if (!right.length) {
+        return left.length;
+    }
+
+    let previousRow = Array.from(
+        { length: right.length + 1 },
+        (_, index) => index,
+    );
+    let currentRow = new Array<number>(right.length + 1).fill(0);
+
+    for (let leftIndex = 0; leftIndex < left.length; leftIndex++) {
+        currentRow[0] = leftIndex + 1;
+        for (let rightIndex = 0; rightIndex < right.length; rightIndex++) {
+            const substitutionCost =
+                left[leftIndex] === right[rightIndex] ? 0 : 1;
+            currentRow[rightIndex + 1] = Math.min(
+                previousRow[rightIndex + 1] + 1,
+                currentRow[rightIndex] + 1,
+                previousRow[rightIndex] + substitutionCost,
+            );
+        }
+
+        [previousRow, currentRow] = [currentRow, previousRow];
+    }
+
+    return previousRow[right.length];
+}
+
+function scoreTodoTitleMatch(todoTitle: string, query: string): number | null {
+    const normalizedTitle = normalizeTodoSearchText(todoTitle);
+    const normalizedQuery = normalizeTodoSearchText(query);
+
+    if (!normalizedTitle || !normalizedQuery) {
+        return null;
+    }
+
+    if (normalizedTitle === normalizedQuery) {
+        return 1;
+    }
+
+    const compactTitle = normalizedTitle.replace(/\s+/g, "");
+    const compactQuery = normalizedQuery.replace(/\s+/g, "");
+
+    if (compactTitle === compactQuery) {
+        return 1;
+    }
+
+    if (
+        compactTitle.startsWith(compactQuery) ||
+        compactQuery.startsWith(compactTitle)
+    ) {
+        return 0.95;
+    }
+
+    const titleTokens = normalizedTitle.split(" ");
+    const queryTokens = normalizedQuery.split(" ");
+    if (
+        queryTokens.every((queryToken) =>
+            titleTokens.some(
+                (titleToken) =>
+                    titleToken.startsWith(queryToken) ||
+                    queryToken.startsWith(titleToken),
+            ),
+        )
+    ) {
+        return 0.85;
+    }
+
+    const distance = levenshteinDistance(compactTitle, compactQuery);
+    const longest = Math.max(compactTitle.length, compactQuery.length);
+    return Math.max(0, 1 - distance / longest);
+}
+
+export function findTodoTargetByTitle(
+    todos: Todo[],
+    title: string,
+): { todo?: Todo; position?: number; error?: string } {
+    const visibleTodos = getOrderedVisibleTodos(todos);
+    let bestTodo: Todo | undefined;
+    let bestPosition: number | undefined;
+    let bestScore = 0;
+
+    for (const [index, todo] of visibleTodos.entries()) {
+        const score = scoreTodoTitleMatch(todo.text, title);
+        if (score === null || score <= bestScore) {
+            continue;
+        }
+
+        bestTodo = todo;
+        bestPosition = index + 1;
+        bestScore = score;
+    }
+
+    if (!bestTodo || bestScore < 0.5) {
+        return { error: `todo titled ${JSON.stringify(title)} not found` };
+    }
+
+    return {
+        todo: bestTodo,
+        position: bestPosition,
+    };
 }
 
 export function findTodoTarget(
