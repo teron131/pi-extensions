@@ -8,6 +8,8 @@ Delegate tasks to specialized subagents with isolated context windows.
 - **Structured delegation brief**: Automatically wraps plain-language tasks with Goal, Constraints, and Success criteria
 - **Structured task objects**: You can pass `goal`, `context`, `constraints`, `successCriteria`, `outputFormat`, and `toolingHint` directly instead of squeezing everything into one string
 - **Agent discovery mode**: `action: "list"` returns the available agents before delegation
+- **Early validation**: rejects empty tasks and invalid working directories before spawning subprocesses
+- **Safer subprocess handling**: malformed JSON output from subagents is treated as a failure instead of being silently ignored
 - **Streaming output**: See tool calls and progress as they happen
 - **Parallel streaming**: All parallel tasks stream updates simultaneously
 - **Markdown rendering**: Final output rendered with proper formatting (expanded view)
@@ -28,7 +30,7 @@ subagent/
 │   └── worker.md        # General-purpose (full capabilities)
 └── prompts/             # Workflow presets (prompt templates)
     ├── implement.md     # explorer -> planner -> worker
-    ├── scout-and-plan.md    # explorer -> planner (prompt name kept for compatibility)
+    ├── explorer-and-plan.md # explorer -> planner workflow prompt
     └── implement-and-review.md  # worker -> reviewer -> worker
 ```
 
@@ -52,12 +54,16 @@ To enable project-local agents, pass `agentScope: "both"` (or `"project"`). Only
 
 When running interactively, the tool prompts for confirmation before running project-local agents. Set `confirmProjectAgents: false` to disable.
 
+When running headless, the tool now fails closed if project-local agents would require confirmation. You must opt out explicitly with `confirmProjectAgents: false` for trusted repositories.
+
 ## Usage
 
 ### Discover available agents first
 ```ts
 subagent({ action: "list", agentScope: "both" })
 ```
+
+The list output now also includes discovery warnings, such as malformed agent files or project agents overriding user agents.
 
 ### Single agent
 ```
@@ -107,7 +113,7 @@ Use a chain: first have explorer find the read tool, then have planner suggest i
 ### Workflow prompts
 ```
 /implement add Redis caching to the session store
-/scout-and-plan refactor auth to support OAuth
+/explorer-and-plan refactor auth to support OAuth
 /implement-and-review add input validation to API endpoints
 ```
 
@@ -128,7 +134,6 @@ Chain steps can reference earlier results with these placeholders:
 - `{previous_output}` - the raw final assistant text from the previous step
 - `{previous_agent}` - the previous agent's resolved name
 
-`scout` also remains available as a compatibility alias for `explorer`.
 
 ## Output Display
 
@@ -222,19 +227,19 @@ Project agents override user agents with the same name when `agentScope: "both"`
 | `reviewer` | Code review | `google` | `gemini-3.1-pro-preview` | read, grep, find, ls, bash |
 | `worker` | General-purpose | `openrouter` | `gpt-5.4-mini` | (all default) |
 
-Compatibility alias: `scout` → `explorer`
 
 ## Workflow Prompts
 
 | Prompt | Flow |
 |--------|------|
 | `/implement <query>` | explorer → planner → worker |
-| `/scout-and-plan <query>` | explorer → planner |
+| `/explorer-and-plan <query>` | explorer → planner |
 | `/implement-and-review <query>` | worker → reviewer → worker |
 
 ## Error Handling
 
 - **Exit code != 0**: Tool returns error with stderr/output
+- **Malformed child JSON**: Treated as a subprocess failure with captured stderr context
 - **stopReason "error"**: LLM error propagated with error message
 - **stopReason "aborted"**: User abort (Ctrl+C) kills subprocess, throws error
 - **Chain mode**: Stops at first failing step, reports which step failed

@@ -21,6 +21,12 @@ export interface AgentConfig {
 export interface AgentDiscoveryResult {
     agents: AgentConfig[];
     projectAgentsDir: string | null;
+    warnings: string[];
+}
+
+interface LoadAgentsResult {
+    agents: AgentConfig[];
+    warnings: string[];
 }
 
 function parseToolsField(value: unknown): string[] | undefined {
@@ -46,19 +52,22 @@ function parseToolsField(value: unknown): string[] | undefined {
 function loadAgentsFromDir(
     dir: string,
     source: "user" | "project",
-): AgentConfig[] {
+): LoadAgentsResult {
     const agents: AgentConfig[] = [];
+    const warnings: string[] = [];
 
     if (!fs.existsSync(dir)) {
-        return agents;
+        return { agents, warnings };
     }
 
     let entries: fs.Dirent[];
     try {
         entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch {
-        return agents;
+        return { agents, warnings };
     }
+
+    const seenNames = new Map<string, string>();
 
     for (const entry of entries) {
         if (!entry.name.endsWith(".md")) continue;
@@ -69,6 +78,9 @@ function loadAgentsFromDir(
         try {
             content = fs.readFileSync(filePath, "utf-8");
         } catch {
+            warnings.push(
+                `Skipping ${source} agent ${entry.name}: could not read file.`,
+            );
             continue;
         }
 
@@ -79,8 +91,21 @@ function loadAgentsFromDir(
             typeof frontmatter.name !== "string" ||
             typeof frontmatter.description !== "string"
         ) {
+            warnings.push(
+                `Skipping ${source} agent ${entry.name}: missing required name/description frontmatter.`,
+            );
             continue;
         }
+
+        const normalizedName = frontmatter.name.trim();
+        const normalizedDescription = frontmatter.description.trim();
+        const previousPath = seenNames.get(normalizedName);
+        if (previousPath) {
+            warnings.push(
+                `Duplicate ${source} agent name "${normalizedName}" in ${entry.name}; overriding ${path.basename(previousPath)}.`,
+            );
+        }
+        seenNames.set(normalizedName, filePath);
 
         const tools = parseToolsField(frontmatter.tools);
         const provider =
@@ -93,8 +118,8 @@ function loadAgentsFromDir(
                 : undefined;
 
         agents.push({
-            name: frontmatter.name,
-            description: frontmatter.description,
+            name: normalizedName,
+            description: normalizedDescription,
             tools,
             provider,
             model,
@@ -104,7 +129,7 @@ function loadAgentsFromDir(
         });
     }
 
-    return agents;
+    return { agents, warnings };
 }
 
 function isDirectory(p: string): boolean {
@@ -134,25 +159,40 @@ export function discoverAgents(
     const userDir = path.join(getAgentDir(), "agents");
     const projectAgentsDir = findNearestProjectAgentsDir(cwd);
 
-    const userAgents =
-        scope === "project" ? [] : loadAgentsFromDir(userDir, "user");
-    const projectAgents =
+    const userResult =
+        scope === "project"
+            ? { agents: [], warnings: [] }
+            : loadAgentsFromDir(userDir, "user");
+    const projectResult =
         scope === "user" || !projectAgentsDir
-            ? []
+            ? { agents: [], warnings: [] }
             : loadAgentsFromDir(projectAgentsDir, "project");
 
+    const warnings = [...userResult.warnings, ...projectResult.warnings];
     const agentMap = new Map<string, AgentConfig>();
 
     if (scope === "both") {
-        for (const agent of userAgents) agentMap.set(agent.name, agent);
-        for (const agent of projectAgents) agentMap.set(agent.name, agent);
+        for (const agent of userResult.agents) agentMap.set(agent.name, agent);
+        for (const agent of projectResult.agents) {
+            if (agentMap.has(agent.name)) {
+                warnings.push(
+                    `Project agent "${agent.name}" overrides the user agent with the same name.`,
+                );
+            }
+            agentMap.set(agent.name, agent);
+        }
     } else if (scope === "user") {
-        for (const agent of userAgents) agentMap.set(agent.name, agent);
+        for (const agent of userResult.agents) agentMap.set(agent.name, agent);
     } else {
-        for (const agent of projectAgents) agentMap.set(agent.name, agent);
+        for (const agent of projectResult.agents)
+            agentMap.set(agent.name, agent);
     }
 
-    return { agents: Array.from(agentMap.values()), projectAgentsDir };
+    const agents = Array.from(agentMap.values()).sort(
+        (a, b) =>
+            a.name.localeCompare(b.name) || a.source.localeCompare(b.source),
+    );
+    return { agents, projectAgentsDir, warnings };
 }
 
 export function resolveAgent(

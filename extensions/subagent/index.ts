@@ -206,6 +206,7 @@ interface SubagentDetails {
     mode: "single" | "parallel" | "chain";
     agentScope: AgentScope;
     projectAgentsDir: string | null;
+    warnings: string[];
     results: SingleResult[];
 }
 
@@ -220,10 +221,51 @@ function formatAgentSummary(agent: AgentConfig): string {
 
 function formatAvailableAgents(agents: AgentConfig[]): string {
     if (agents.length === 0) return "none";
-    const aliasNotice = agents.some((agent) => agent.name === "explorer")
-        ? "\n\nAliases:\n- scout → explorer"
-        : "";
-    return `${agents.map(formatAgentSummary).join("\n")}${aliasNotice}`;
+    return agents.map(formatAgentSummary).join("\n");
+}
+
+function formatDiscoveryWarnings(warnings: string[]): string {
+    if (warnings.length === 0) return "";
+    return `\n\nDiscovery warnings:\n${warnings.map((warning) => `- ${warning}`).join("\n")}`;
+}
+
+function isDirectoryPath(dir: string): boolean {
+    try {
+        return fs.statSync(dir).isDirectory();
+    } catch {
+        return false;
+    }
+}
+
+function isBlankTask(task: DelegatedTask): boolean {
+    if (typeof task === "string") return task.trim().length === 0;
+    return task.goal.trim().length === 0;
+}
+
+function isResultRunning(result: SingleResult): boolean {
+    return result.exitCode === -1;
+}
+
+function isResultError(result: SingleResult): boolean {
+    return (
+        !isResultRunning(result) &&
+        (result.exitCode !== 0 ||
+            result.stopReason === "error" ||
+            result.stopReason === "aborted")
+    );
+}
+
+function isResultSuccess(result: SingleResult): boolean {
+    return !isResultRunning(result) && !isResultError(result);
+}
+
+function getResultErrorText(result: SingleResult): string {
+    return (
+        result.errorMessage ||
+        result.stderr ||
+        getFinalOutput(result.messages) ||
+        "(no output)"
+    );
 }
 
 function normalizeBriefSection(value?: string | string[]): string[] {
@@ -654,12 +696,23 @@ async function runSingleAgent(
             });
             let buffer = "";
 
+            let sawMalformedJson = false;
+
             const processLine = (line: string) => {
                 if (!line.trim()) return;
-                const event = JSON.parse(line) as {
-                    type?: unknown;
-                    message?: unknown;
-                };
+
+                let event: { type?: unknown; message?: unknown };
+                try {
+                    event = JSON.parse(line) as {
+                        type?: unknown;
+                        message?: unknown;
+                    };
+                } catch {
+                    sawMalformedJson = true;
+                    currentResult.stderr += `Invalid JSON from subagent stdout: ${line}\n`;
+                    return;
+                }
+
                 if (typeof event.type !== "string") {
                     return;
                 }
@@ -679,8 +732,10 @@ async function runSingleAgent(
                             currentResult.usage.cacheWrite +=
                                 usage.cacheWrite || 0;
                             currentResult.usage.cost += usage.cost?.total || 0;
-                            currentResult.usage.contextTokens =
-                                usage.totalTokens || 0;
+                            currentResult.usage.contextTokens = Math.max(
+                                currentResult.usage.contextTokens,
+                                usage.totalTokens || 0,
+                            );
                         }
                         if (msg.model) {
                             const provider = msg.provider;
@@ -715,7 +770,11 @@ async function runSingleAgent(
 
             proc.on("close", (code) => {
                 if (buffer.trim()) processLine(buffer);
-                resolve(code ?? 0);
+                if (sawMalformedJson && !currentResult.errorMessage) {
+                    currentResult.errorMessage =
+                        "Subagent emitted malformed JSON output.";
+                }
+                resolve(sawMalformedJson ? 1 : (code ?? 0));
             });
 
             proc.on("error", (error) => {
@@ -911,13 +970,14 @@ export default function (pi: ExtensionAPI) {
                     content: [
                         {
                             type: "text",
-                            text: `Available agents (${agentScope}):\n${availableAgents}`,
+                            text: `Available agents (${agentScope}):\n${availableAgents}${formatDiscoveryWarnings(discovery.warnings)}`,
                         },
                     ],
                     details: {
                         mode: "single",
                         agentScope,
                         projectAgentsDir: discovery.projectAgentsDir,
+                        warnings: discovery.warnings,
                         results: [],
                     },
                 };
@@ -942,12 +1002,62 @@ export default function (pi: ExtensionAPI) {
             if (executionParams.agent)
                 requestedAgentNames.add(executionParams.agent);
 
+            const validationErrors: string[] = [];
+            if (executionParams.cwd && !isDirectoryPath(executionParams.cwd)) {
+                validationErrors.push(
+                    `Single-mode cwd does not exist or is not a directory: ${executionParams.cwd}`,
+                );
+            }
+            if (hasSingle && executionParams.agent?.trim().length === 0) {
+                validationErrors.push(
+                    "Single-mode agent name cannot be empty.",
+                );
+            }
+            if (executionParams.task && isBlankTask(executionParams.task)) {
+                validationErrors.push("Single-mode task cannot be empty.");
+            }
+            chainSteps.forEach((step, index) => {
+                if (step.agent.trim().length === 0) {
+                    validationErrors.push(
+                        `Chain step ${index + 1} agent name cannot be empty.`,
+                    );
+                }
+                if (isBlankTask(step.task)) {
+                    validationErrors.push(
+                        `Chain step ${index + 1} task cannot be empty.`,
+                    );
+                }
+                if (step.cwd && !isDirectoryPath(step.cwd)) {
+                    validationErrors.push(
+                        `Chain step ${index + 1} cwd does not exist or is not a directory: ${step.cwd}`,
+                    );
+                }
+            });
+            parallelTasks.forEach((task, index) => {
+                if (task.agent.trim().length === 0) {
+                    validationErrors.push(
+                        `Parallel task ${index + 1} agent name cannot be empty.`,
+                    );
+                }
+                if (isBlankTask(task.task)) {
+                    validationErrors.push(
+                        `Parallel task ${index + 1} task cannot be empty.`,
+                    );
+                }
+                if (task.cwd && !isDirectoryPath(task.cwd)) {
+                    validationErrors.push(
+                        `Parallel task ${index + 1} cwd does not exist or is not a directory: ${task.cwd}`,
+                    );
+                }
+            });
+
             const makeDetails =
                 (mode: "single" | "parallel" | "chain") =>
                 (results: SingleResult[]): SubagentDetails => ({
                     mode,
                     agentScope,
                     projectAgentsDir: discovery.projectAgentsDir,
+                    warnings: discovery.warnings,
                     results,
                 });
 
@@ -960,19 +1070,20 @@ export default function (pi: ExtensionAPI) {
                     content: [
                         {
                             type: "text",
-                            text: `Invalid parameters. Provide exactly one mode.\n\nAvailable agents:\n${availableAgents}`,
+                            text: `Invalid parameters. Provide exactly one mode.\n\nAvailable agents:\n${availableAgents}${formatDiscoveryWarnings(discovery.warnings)}`,
                         },
                     ],
                     details: makeDetails("single")([]),
+                    isError: true,
                 };
             }
 
-            if (unknownAgentNames.length > 0) {
+            if (validationErrors.length > 0) {
                 return {
                     content: [
                         {
                             type: "text",
-                            text: `Unknown agent${unknownAgentNames.length > 1 ? "s" : ""}: ${unknownAgentNames.join(", ")}\n\nAvailable agents:\n${availableAgents}`,
+                            text: `Invalid subagent request:\n${validationErrors.map((error) => `- ${error}`).join("\n")}\n\nAvailable agents:\n${availableAgents}${formatDiscoveryWarnings(discovery.warnings)}`,
                         },
                     ],
                     details: makeDetails(
@@ -982,41 +1093,74 @@ export default function (pi: ExtensionAPI) {
                 };
             }
 
-            if (
-                (agentScope === "project" || agentScope === "both") &&
-                confirmProjectAgents &&
-                ctx.hasUI
-            ) {
-                const projectAgentsRequested = Array.from(requestedAgentNames)
-                    .map((name) => resolveAgent(agents, name))
-                    .filter((a): a is AgentConfig => a?.source === "project");
+            if (unknownAgentNames.length > 0) {
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: `Unknown agent${unknownAgentNames.length > 1 ? "s" : ""}: ${unknownAgentNames.join(", ")}\n\nAvailable agents:\n${availableAgents}${formatDiscoveryWarnings(discovery.warnings)}`,
+                        },
+                    ],
+                    details: makeDetails(
+                        hasChain ? "chain" : hasTasks ? "parallel" : "single",
+                    )([]),
+                    isError: true,
+                };
+            }
 
-                if (projectAgentsRequested.length > 0) {
-                    const names = projectAgentsRequested
-                        .map((a) => a.name)
-                        .join(", ");
-                    const dir = discovery.projectAgentsDir ?? "(unknown)";
-                    const ok = await ctx.ui.confirm(
-                        "Run project-local agents?",
-                        `Agents: ${names}\nSource: ${dir}\n\nProject agents are repo-controlled. Only continue for trusted repositories.`,
-                    );
-                    if (!ok)
-                        return {
-                            content: [
-                                {
-                                    type: "text",
-                                    text: "Canceled: project-local agents not approved.",
-                                },
-                            ],
-                            details: makeDetails(
-                                hasChain
-                                    ? "chain"
-                                    : hasTasks
-                                      ? "parallel"
-                                      : "single",
-                            )([]),
-                        };
+            const projectAgentsRequested = Array.from(requestedAgentNames)
+                .map((name) => resolveAgent(agents, name))
+                .filter((a): a is AgentConfig => a?.source === "project");
+
+            if (
+                projectAgentsRequested.length > 0 &&
+                (agentScope === "project" || agentScope === "both") &&
+                confirmProjectAgents
+            ) {
+                if (!ctx.hasUI) {
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: "Refusing to run project-local agents without interactive approval. Re-run with confirmProjectAgents: false only if you trust this repository.",
+                            },
+                        ],
+                        details: makeDetails(
+                            hasChain
+                                ? "chain"
+                                : hasTasks
+                                  ? "parallel"
+                                  : "single",
+                        )([]),
+                        isError: true,
+                    };
                 }
+
+                const names = projectAgentsRequested
+                    .map((a) => a.name)
+                    .join(", ");
+                const dir = discovery.projectAgentsDir ?? "(unknown)";
+                const ok = await ctx.ui.confirm(
+                    "Run project-local agents?",
+                    `Agents: ${names}\nSource: ${dir}\n\nProject agents are repo-controlled. Only continue for trusted repositories.`,
+                );
+                if (!ok)
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: "Canceled: project-local agents not approved.",
+                            },
+                        ],
+                        details: makeDetails(
+                            hasChain
+                                ? "chain"
+                                : hasTasks
+                                  ? "parallel"
+                                  : "single",
+                        )([]),
+                        isError: true,
+                    };
             }
 
             if (chainSteps.length > 0) {
@@ -1067,16 +1211,9 @@ export default function (pi: ExtensionAPI) {
                     );
                     results.push(result);
 
-                    const isError =
-                        result.exitCode !== 0 ||
-                        result.stopReason === "error" ||
-                        result.stopReason === "aborted";
+                    const isError = isResultError(result);
                     if (isError) {
-                        const errorMsg =
-                            result.errorMessage ||
-                            result.stderr ||
-                            getFinalOutput(result.messages) ||
-                            "(no output)";
+                        const errorMsg = getResultErrorText(result);
                         emitFinalDisplayMessage(pi, mode, results);
                         return {
                             content: [
@@ -1190,25 +1327,31 @@ export default function (pi: ExtensionAPI) {
                     return result;
                 });
 
-                const successCount = results.filter(
-                    (r) => r.exitCode === 0,
+                const successCount = results.filter((r) =>
+                    isResultSuccess(r),
+                ).length;
+                const failureCount = results.filter((r) =>
+                    isResultError(r),
                 ).length;
                 const summaries = results.map((r) => {
-                    const output = getFinalOutput(r.messages);
+                    const output = isResultError(r)
+                        ? getResultErrorText(r)
+                        : getFinalOutput(r.messages);
                     const preview =
                         output.slice(0, 100) +
                         (output.length > 100 ? "..." : "");
-                    return `[${r.agent}] ${r.exitCode === 0 ? "completed" : "failed"}: ${preview || "(no output)"}`;
+                    return `[${r.agent}] ${isResultSuccess(r) ? "completed" : "failed"}: ${preview || "(no output)"}`;
                 });
                 emitFinalDisplayMessage(pi, mode, results);
                 return {
                     content: [
                         {
                             type: "text",
-                            text: `Parallel: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}`,
+                            text: `Parallel: ${successCount}/${results.length} succeeded${failureCount > 0 ? `, ${failureCount} failed` : ""}\n\n${summaries.join("\n\n")}`,
                         },
                     ],
                     details: makeDetails(mode)(results),
+                    isError: failureCount > 0,
                 };
             }
 
@@ -1225,16 +1368,9 @@ export default function (pi: ExtensionAPI) {
                     onUpdate,
                     makeDetails(mode),
                 );
-                const isError =
-                    result.exitCode !== 0 ||
-                    result.stopReason === "error" ||
-                    result.stopReason === "aborted";
+                const isError = isResultError(result);
                 if (isError) {
-                    const errorMsg =
-                        result.errorMessage ||
-                        result.stderr ||
-                        getFinalOutput(result.messages) ||
-                        "(no output)";
+                    const errorMsg = getResultErrorText(result);
                     emitFinalDisplayMessage(pi, mode, [result]);
                     return {
                         content: [
@@ -1265,10 +1401,11 @@ export default function (pi: ExtensionAPI) {
                 content: [
                     {
                         type: "text",
-                        text: `Invalid parameters. Available agents:\n${availableAgents}`,
+                        text: `Invalid parameters. Available agents:\n${availableAgents}${formatDiscoveryWarnings(discovery.warnings)}`,
                     },
                 ],
                 details: makeDetails("single")([]),
+                isError: true,
             };
         },
 
@@ -1354,6 +1491,19 @@ export default function (pi: ExtensionAPI) {
             }
 
             const mdTheme = getMarkdownTheme();
+            const warningsText = details.warnings.map((warning) => {
+                return `${theme.fg("warning", "!")} ${theme.fg("warning", warning)}`;
+            });
+            const addWarningsToContainer = (container: Container) => {
+                if (warningsText.length === 0) return;
+                container.addChild(new Spacer(1));
+                container.addChild(
+                    new Text(theme.fg("warning", "Discovery warnings:"), 0, 0),
+                );
+                for (const warning of warningsText) {
+                    container.addChild(new Text(warning, 0, 0));
+                }
+            };
 
             const renderDisplayItems = (
                 items: DisplayItem[],
@@ -1380,10 +1530,7 @@ export default function (pi: ExtensionAPI) {
 
             if (details.mode === "single" && details.results.length === 1) {
                 const r = details.results[0];
-                const isError =
-                    r.exitCode !== 0 ||
-                    r.stopReason === "error" ||
-                    r.stopReason === "aborted";
+                const isError = isResultError(r);
                 const icon = isError
                     ? theme.fg("error", "✗")
                     : theme.fg("success", "✓");
@@ -1404,6 +1551,7 @@ export default function (pi: ExtensionAPI) {
                                 0,
                             ),
                         );
+                    addWarningsToContainer(container);
                     container.addChild(new Spacer(1));
                     container.addChild(
                         new Text(theme.fg("muted", "─── Task ───"), 0, 0),
@@ -1453,6 +1601,9 @@ export default function (pi: ExtensionAPI) {
                 let text = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
                 if (isError && r.stopReason)
                     text += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
+                if (warningsText.length > 0) {
+                    text += `\n${warningsText.join("\n")}`;
+                }
                 if (isError && r.errorMessage)
                     text += `\n${theme.fg("error", `Error: ${r.errorMessage}`)}`;
                 else if (displayItems.length === 0)
@@ -1488,8 +1639,8 @@ export default function (pi: ExtensionAPI) {
             };
 
             if (details.mode === "chain") {
-                const successCount = details.results.filter(
-                    (r) => r.exitCode === 0,
+                const successCount = details.results.filter((r) =>
+                    isResultSuccess(r),
                 ).length;
                 const icon =
                     successCount === details.results.length
@@ -1511,12 +1662,12 @@ export default function (pi: ExtensionAPI) {
                             0,
                         ),
                     );
+                    addWarningsToContainer(container);
 
                     for (const r of details.results) {
-                        const rIcon =
-                            r.exitCode === 0
-                                ? theme.fg("success", "✓")
-                                : theme.fg("error", "✗");
+                        const rIcon = isResultSuccess(r)
+                            ? theme.fg("success", "✓")
+                            : theme.fg("error", "✗");
                         const displayItems = getDisplayItems(r.messages);
                         const finalOutput = getFinalOutput(r.messages);
 
@@ -1563,6 +1714,19 @@ export default function (pi: ExtensionAPI) {
                             );
                         }
 
+                        if (isResultError(r)) {
+                            container.addChild(
+                                new Text(
+                                    theme.fg(
+                                        "error",
+                                        `Error: ${getResultErrorText(r)}`,
+                                    ),
+                                    0,
+                                    0,
+                                ),
+                            );
+                        }
+
                         const stepUsage = formatUsageStats(r.usage, r.model);
                         if (stepUsage)
                             container.addChild(
@@ -1601,16 +1765,22 @@ export default function (pi: ExtensionAPI) {
                         "accent",
                         `${successCount}/${details.results.length} steps`,
                     );
+                if (warningsText.length > 0) {
+                    text += `\n${warningsText.join("\n")}`;
+                }
                 for (const r of details.results) {
-                    const rIcon =
-                        r.exitCode === 0
-                            ? theme.fg("success", "✓")
-                            : theme.fg("error", "✗");
+                    const rIcon = isResultSuccess(r)
+                        ? theme.fg("success", "✓")
+                        : theme.fg("error", "✗");
                     const displayItems = getDisplayItems(r.messages);
                     text += `\n\n${theme.fg("muted", `─── Step ${r.step}: `)}${theme.fg("accent", r.agent)} ${rIcon}`;
-                    if (displayItems.length === 0)
-                        text += `\n${theme.fg("muted", "(no output)")}`;
-                    else text += `\n${renderDisplayItems(displayItems, 5)}`;
+                    if (displayItems.length === 0) {
+                        text += isResultError(r)
+                            ? `\n${theme.fg("error", getResultErrorText(r))}`
+                            : `\n${theme.fg("muted", "(no output)")}`;
+                    } else {
+                        text += `\n${renderDisplayItems(displayItems, 5)}`;
+                    }
                 }
                 const models = Array.from(
                     new Set(
@@ -1628,14 +1798,14 @@ export default function (pi: ExtensionAPI) {
             }
 
             if (details.mode === "parallel") {
-                const running = details.results.filter(
-                    (r) => r.exitCode === -1,
+                const running = details.results.filter((r) =>
+                    isResultRunning(r),
                 ).length;
-                const successCount = details.results.filter(
-                    (r) => r.exitCode === 0,
+                const successCount = details.results.filter((r) =>
+                    isResultSuccess(r),
                 ).length;
-                const failCount = details.results.filter(
-                    (r) => r.exitCode > 0,
+                const failCount = details.results.filter((r) =>
+                    isResultError(r),
                 ).length;
                 const isRunning = running > 0;
                 const icon = isRunning
@@ -1645,7 +1815,9 @@ export default function (pi: ExtensionAPI) {
                       : theme.fg("success", "✓");
                 const status = isRunning
                     ? `${successCount + failCount}/${details.results.length} done, ${running} running`
-                    : `${successCount}/${details.results.length} tasks`;
+                    : failCount > 0
+                      ? `${successCount}/${details.results.length} succeeded, ${failCount} failed`
+                      : `${successCount}/${details.results.length} tasks`;
 
                 if (expanded && !isRunning) {
                     const container = new Container();
@@ -1656,12 +1828,12 @@ export default function (pi: ExtensionAPI) {
                             0,
                         ),
                     );
+                    addWarningsToContainer(container);
 
                     for (const r of details.results) {
-                        const rIcon =
-                            r.exitCode === 0
-                                ? theme.fg("success", "✓")
-                                : theme.fg("error", "✗");
+                        const rIcon = isResultSuccess(r)
+                            ? theme.fg("success", "✓")
+                            : theme.fg("error", "✗");
                         const displayItems = getDisplayItems(r.messages);
                         const finalOutput = getFinalOutput(r.messages);
 
@@ -1708,6 +1880,19 @@ export default function (pi: ExtensionAPI) {
                             );
                         }
 
+                        if (isResultError(r)) {
+                            container.addChild(
+                                new Text(
+                                    theme.fg(
+                                        "error",
+                                        `Error: ${getResultErrorText(r)}`,
+                                    ),
+                                    0,
+                                    0,
+                                ),
+                            );
+                        }
+
                         const taskUsage = formatUsageStats(r.usage, r.model);
                         if (taskUsage)
                             container.addChild(
@@ -1739,18 +1924,26 @@ export default function (pi: ExtensionAPI) {
 
                 // Collapsed view (or still running)
                 let text = `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`;
+                if (warningsText.length > 0) {
+                    text += `\n${warningsText.join("\n")}`;
+                }
                 for (const r of details.results) {
-                    const rIcon =
-                        r.exitCode === -1
-                            ? theme.fg("warning", "⏳")
-                            : r.exitCode === 0
-                              ? theme.fg("success", "✓")
-                              : theme.fg("error", "✗");
+                    const rIcon = isResultRunning(r)
+                        ? theme.fg("warning", "⏳")
+                        : isResultSuccess(r)
+                          ? theme.fg("success", "✓")
+                          : theme.fg("error", "✗");
                     const displayItems = getDisplayItems(r.messages);
                     text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)} ${rIcon}`;
-                    if (displayItems.length === 0)
-                        text += `\n${theme.fg("muted", r.exitCode === -1 ? "(running...)" : "(no output)")}`;
-                    else text += `\n${renderDisplayItems(displayItems, 5)}`;
+                    if (displayItems.length === 0) {
+                        text += isResultRunning(r)
+                            ? `\n${theme.fg("muted", "(running...)")}`
+                            : isResultError(r)
+                              ? `\n${theme.fg("error", getResultErrorText(r))}`
+                              : `\n${theme.fg("muted", "(no output)")}`;
+                    } else {
+                        text += `\n${renderDisplayItems(displayItems, 5)}`;
+                    }
                 }
                 if (!isRunning) {
                     const models = Array.from(
