@@ -5,7 +5,7 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { matchesKey, Text, truncateToWidth } from "@mariozechner/pi-tui";
 import {
-    getOrderedTodos,
+    getOrderedVisibleTodos,
     getTodoStats,
     TODO_WIDGET_COMPACT_TODO_COUNT,
     TODO_WIDGET_TOGGLE_HINT,
@@ -65,7 +65,7 @@ export function renderTodoListLines(
         return lines;
     }
 
-    const orderedTodos = getOrderedTodos(todos);
+    const visibleTodos = getOrderedVisibleTodos(todos);
     const { doneCount, openCount, totalCount } = getTodoStats(todos);
 
     addLine();
@@ -73,23 +73,26 @@ export function renderTodoListLines(
         addLine(
             `  ${theme.fg("success", "Checklist complete")}${theme.fg("muted", " • next add starts a fresh list")}`,
         );
+        addLine();
+        addLine(`  ${theme.fg("accent", theme.bold("Completed"))}`);
     } else {
         addLine(
             `  ${theme.fg("muted", `${openCount} active • ${doneCount} done hidden • ${totalCount} in memory`)}`,
         );
         addLine();
         addLine(`  ${theme.fg("accent", theme.bold("Current"))}`);
-        for (const [index, todo] of orderedTodos.entries()) {
-            addLine(
-                renderTodoLine(todo, theme, {
-                    position: index + 1,
-                    showPosition: true,
-                }),
-            );
-            const noteLine = renderTodoNoteLine(todo, theme);
-            if (noteLine) {
-                addLine(noteLine);
-            }
+    }
+
+    for (const [index, todo] of visibleTodos.entries()) {
+        addLine(
+            renderTodoLine(todo, theme, {
+                position: index + 1,
+                showPosition: true,
+            }),
+        );
+        const noteLine = renderTodoNoteLine(todo, theme);
+        if (noteLine) {
+            addLine(noteLine);
         }
     }
 
@@ -107,16 +110,19 @@ export function renderTodoWidgetLines(
     expanded: boolean,
 ): string[] {
     const { doneCount, openCount } = getTodoStats(todos);
-    const orderedTodos = getOrderedTodos(todos);
-    const visibleTodos = expanded
-        ? orderedTodos
-        : orderedTodos.slice(0, TODO_WIDGET_COMPACT_TODO_COUNT);
+    const allTodos = getOrderedVisibleTodos(todos);
+    const displayed = expanded
+        ? allTodos
+        : allTodos.slice(0, TODO_WIDGET_COMPACT_TODO_COUNT);
     const toggleHint = expanded
         ? theme.fg("dim", `(${TODO_WIDGET_TOGGLE_HINT} collapse)`)
         : theme.fg("dim", `(${TODO_WIDGET_TOGGLE_HINT} expand)`);
-    const summary = expanded
-        ? `${openCount} active • ${doneCount} hidden`
-        : `${openCount} active`;
+    const summary =
+        openCount === 0
+            ? `${doneCount} complete`
+            : expanded
+              ? `${openCount} active • ${doneCount} hidden`
+              : `${openCount} active`;
     const lines = [
         truncateToWidth(
             `${theme.fg("accent", theme.bold("📋 Todo List"))} ${theme.fg("muted", summary)} ${toggleHint}`,
@@ -124,7 +130,7 @@ export function renderTodoWidgetLines(
         ),
     ];
 
-    for (const todo of visibleTodos) {
+    for (const todo of displayed) {
         lines.push(truncateToWidth(renderTodoLine(todo, theme), width));
         const noteLine = renderTodoNoteLine(todo, theme);
         if (noteLine) {
@@ -132,10 +138,10 @@ export function renderTodoWidgetLines(
         }
     }
 
-    if (orderedTodos.length > visibleTodos.length) {
+    if (allTodos.length > displayed.length) {
         lines.push(
             truncateToWidth(
-                `  ${theme.fg("dim", `… ${orderedTodos.length - visibleTodos.length} more`)}`,
+                `  ${theme.fg("dim", `… ${allTodos.length - displayed.length} more`)}`,
                 width,
             ),
         );
@@ -175,7 +181,7 @@ export function renderTodoListResult(
         );
     }
 
-    const orderedTodos = getOrderedTodos(details.todos);
+    const orderedTodos = getOrderedVisibleTodos(details.todos);
     const displayTodos = expanded ? orderedTodos : orderedTodos.slice(0, 5);
     let listText = theme.fg(
         "muted",
@@ -201,14 +207,18 @@ export function renderTodoListResult(
 }
 
 export class TodoListComponent {
-    private todos: Todo[];
-    private theme: Theme;
-    private onClose: () => void;
+    private readonly getCurrentTodos: () => Todo[];
+    private readonly theme: Theme;
+    private readonly onClose: () => void;
     private cachedWidth?: number;
     private cachedLines?: string[];
 
-    constructor(todos: Todo[], theme: Theme, onClose: () => void) {
-        this.todos = todos;
+    constructor(
+        getCurrentTodos: () => Todo[],
+        theme: Theme,
+        onClose: () => void,
+    ) {
+        this.getCurrentTodos = getCurrentTodos;
         this.theme = theme;
         this.onClose = onClose;
     }
@@ -224,7 +234,11 @@ export class TodoListComponent {
             return this.cachedLines;
         }
 
-        const lines = renderTodoListLines(this.todos, this.theme, width);
+        const lines = renderTodoListLines(
+            this.getCurrentTodos(),
+            this.theme,
+            width,
+        );
         this.cachedWidth = width;
         this.cachedLines = lines;
         return lines;

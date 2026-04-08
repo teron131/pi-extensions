@@ -14,7 +14,7 @@ Read-only exploration mode for safe code analysis.
 ## Commands
 
 - `/plan` - Toggle plan mode
-- `/todos` - Show current plan progress
+- `/todos` - Show current plan progress in the shared todo list
 - `Ctrl+Alt+P` - Toggle plan mode (shortcut)
 
 ## Usage
