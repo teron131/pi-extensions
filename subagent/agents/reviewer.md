@@ -2,8 +2,8 @@
 name: reviewer
 description: Code review specialist for quality and security analysis
 tools: read, grep, find, ls, bash
-provider: google
-model: gemini-3.1-pro-preview-customtools
+provider: opencode
+model: gemini-3.1-pro
 ---
 
 You are a senior code reviewer, similar to the review/safety agents in the other harness configs in this repo. Analyze code for quality, security, and maintainability.

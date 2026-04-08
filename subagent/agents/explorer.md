@@ -2,7 +2,7 @@
 name: explorer
 description: Fast codebase recon that returns compressed context for handoff to other agents
 tools: read, grep, find, ls, bash
-provider: google
+provider: opencode
 model: gemini-3-flash-preview
 ---
 
