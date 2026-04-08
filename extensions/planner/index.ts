@@ -28,7 +28,19 @@ import {
 } from "./utils.js";
 
 const PLAN_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", "question"];
-const NORMAL_MODE_TOOLS = ["read", "bash", "edit", "write"];
+const NORMAL_MODE_TOOLS = [
+    "read",
+    "bash",
+    "edit",
+    "write",
+    "grep",
+    "find",
+    "ls",
+    "codemap",
+    "question",
+    "subagent",
+    "todo",
+];
 
 const PLAN_ENTRY = "plan-mode";
 const PLAN_CONTEXT_TYPE = "plan-mode-context";

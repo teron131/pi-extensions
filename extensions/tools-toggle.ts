@@ -71,8 +71,9 @@ export default function toolsExtension(pi: ExtensionAPI) {
             );
             applyTools();
         } else {
-            // No saved state - sync with currently active tools
-            enabledTools = new Set(pi.getActiveTools());
+            // No saved state - start with all available tools enabled by default
+            enabledTools = new Set(allTools.map((tool) => tool.name));
+            applyTools();
         }
     }
 
