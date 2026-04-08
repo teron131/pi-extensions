@@ -225,12 +225,109 @@ interface SubagentDetails {
     results: SingleResult[];
 }
 
+type ChecklistState = "pending" | "running" | "done" | "failed";
+
+interface StageRow {
+    position: number;
+    label: string;
+    task: string;
+    stage?: SingleResult;
+    state: ChecklistState;
+    displayItems: DisplayItem[];
+    finalOutput: string;
+}
+
+interface WorkflowSummary {
+    runningCount: number;
+    doneCount: number;
+    failedCount: number;
+    pendingCount: number;
+    runningRow?: StageRow;
+}
+
+function getAgentModelLabel(
+    agent: Pick<AgentConfig, "provider" | "model">,
+): string {
+    return agent.provider && agent.model
+        ? `${agent.provider}/${agent.model}`
+        : agent.model || agent.provider || "session-default";
+}
+
+function getAgentToolsLabel(agent: Pick<AgentConfig, "tools">): string {
+    return agent.tools?.join(", ") || "session-default";
+}
+
+function compactText(text: string, maxLength: number): string {
+    const flattened = text.replace(/\s+/g, " ").trim();
+    if (flattened.length <= maxLength) return flattened;
+    return `${flattened.slice(0, maxLength - 3)}...`;
+}
+
+function getChecklistState(stage?: SingleResult): ChecklistState {
+    if (!stage) return "pending";
+    if (isResultRunning(stage)) return "running";
+    if (isResultSuccess(stage)) return "done";
+    return "failed";
+}
+
+function getResultsModelLabel(results: SingleResult[]): string {
+    return Array.from(
+        new Set(results.map((result) => result.model).filter(Boolean)),
+    ).join(", ");
+}
+
+function getWorkflowSummary(rows: StageRow[]): WorkflowSummary {
+    const runningCount = rows.filter((row) => row.state === "running").length;
+    const doneCount = rows.filter((row) => row.state === "done").length;
+    const failedCount = rows.filter((row) => row.state === "failed").length;
+    const pendingCount = rows.filter((row) => row.state === "pending").length;
+    return {
+        runningCount,
+        doneCount,
+        failedCount,
+        pendingCount,
+        runningRow: rows.find((row) => row.state === "running"),
+    };
+}
+
+function buildStageRow(
+    position: number,
+    label: string,
+    task: string,
+    stage?: SingleResult,
+): StageRow {
+    return {
+        position,
+        label,
+        task,
+        stage,
+        state: getChecklistState(stage),
+        displayItems: stage ? getDisplayItems(stage.messages) : [],
+        finalOutput: stage ? getFinalOutput(stage.messages) : "",
+    };
+}
+
+function buildPlannedStageRows(
+    plannedStages: PlannedStage[],
+    results: SingleResult[],
+): StageRow[] {
+    return plannedStages.map((plannedStage, index) => {
+        const position = plannedStage.step ?? index + 1;
+        const stage = results.find(
+            (resultStage) => (resultStage.step ?? index + 1) === position,
+        );
+        return buildStageRow(
+            position,
+            plannedStage.agent,
+            plannedStage.task,
+            stage,
+        );
+    });
+}
+
 function formatAgentSummary(agent: AgentConfig): string {
-    const model =
-        agent.provider && agent.model
-            ? `${agent.provider}/${agent.model}`
-            : agent.model || agent.provider || "session-default";
-    const tools = agent.tools?.join(", ") || "session-default";
+    const model = getAgentModelLabel(agent);
+    const tools = getAgentToolsLabel(agent);
     return `- ${agent.name} [${agent.source}] — ${agent.description}\n  model: ${model}\n  tools: ${tools}`;
 }
 
@@ -1730,20 +1827,6 @@ export default function (pi: ExtensionAPI) {
                     container.addChild(new Text(warning, 0, 0));
                 }
             };
-            const compactText = (text: string, maxLength: number) => {
-                const flattened = text.replace(/\s+/g, " ").trim();
-                if (flattened.length <= maxLength) return flattened;
-                return `${flattened.slice(0, maxLength - 3)}...`;
-            };
-            type ChecklistState = "pending" | "running" | "done" | "failed";
-            const getChecklistState = (
-                stage?: SingleResult,
-            ): ChecklistState => {
-                if (!stage) return "pending";
-                if (isResultRunning(stage)) return "running";
-                if (isResultSuccess(stage)) return "done";
-                return "failed";
-            };
             const getChecklistIcon = (state: ChecklistState): string => {
                 switch (state) {
                     case "running":
@@ -1875,6 +1958,140 @@ export default function (pi: ExtensionAPI) {
                     );
                 }
             };
+            const getWorkflowIcon = (summary: WorkflowSummary): string => {
+                if (summary.runningCount > 0) {
+                    return theme.fg("warning", "⏳");
+                }
+                if (summary.failedCount > 0) {
+                    return theme.fg("warning", "◐");
+                }
+                if (summary.pendingCount > 0) {
+                    return theme.fg("dim", "○");
+                }
+                return theme.fg("success", "✓");
+            };
+            const getWorkflowStatus = (
+                summary: WorkflowSummary,
+                totalCount: number,
+                runningLabel: string,
+            ): string => {
+                if (summary.runningCount > 0) {
+                    return `${summary.doneCount + summary.failedCount}/${totalCount} done, ${runningLabel}`;
+                }
+                if (summary.failedCount > 0) {
+                    return `${summary.doneCount}/${totalCount} succeeded, ${summary.failedCount} failed`;
+                }
+                if (summary.pendingCount > 0) {
+                    return `${summary.doneCount}/${totalCount} done, ${summary.pendingCount} pending`;
+                }
+                return `${summary.doneCount}/${totalCount} completed`;
+            };
+            const getTotalUsageNote = (
+                results: SingleResult[],
+            ): string | null => {
+                const usageStr = formatUsageStats(
+                    aggregateUsage(results),
+                    getResultsModelLabel(results) || undefined,
+                );
+                return usageStr
+                    ? renderChecklistNote(`total: ${usageStr}`)
+                    : null;
+            };
+            const addExpandedStageRow = (
+                container: Container,
+                row: StageRow,
+                taskPreviewLength: number,
+            ) => {
+                container.addChild(new Spacer(1));
+                container.addChild(
+                    new Text(
+                        renderChecklistLine({
+                            label: row.label,
+                            state: row.state,
+                            position: row.position,
+                            meta: row.stage
+                                ? `(${row.stage.agentSource})`
+                                : undefined,
+                        }),
+                        0,
+                        0,
+                    ),
+                );
+                container.addChild(
+                    new Text(
+                        renderChecklistNote(
+                            compactText(row.task, taskPreviewLength),
+                        ),
+                        0,
+                        0,
+                    ),
+                );
+
+                if (!row.stage) {
+                    container.addChild(
+                        new Text(
+                            renderChecklistNote("awaiting earlier steps"),
+                            0,
+                            0,
+                        ),
+                    );
+                    return;
+                }
+
+                const usageStr = formatUsageStats(
+                    row.stage.usage,
+                    row.stage.model,
+                );
+                if (usageStr) {
+                    container.addChild(
+                        new Text(renderChecklistNote(usageStr), 0, 0),
+                    );
+                }
+                maybeAddStageOutput(
+                    container,
+                    row.stage,
+                    row.displayItems,
+                    row.finalOutput,
+                );
+                if (isResultError(row.stage)) {
+                    container.addChild(
+                        new Text(
+                            renderChecklistNote(
+                                getResultErrorText(row.stage),
+                                "error",
+                            ),
+                            0,
+                            0,
+                        ),
+                    );
+                }
+            };
+            const renderCollapsedWorkflowRows = (
+                rows: StageRow[],
+                taskPreviewLength: number,
+            ): string => {
+                return rows
+                    .map((row) => {
+                        const note = row.stage
+                            ? getStagePreviewNote(
+                                  row.stage,
+                                  row.displayItems,
+                                  row.finalOutput,
+                              )
+                            : renderChecklistNote(
+                                  compactText(row.task, taskPreviewLength),
+                              );
+                        return `${renderChecklistLine({
+                            label: row.label,
+                            state: row.state,
+                            position: row.position,
+                            meta: row.stage
+                                ? `(${row.stage.agentSource})`
+                                : undefined,
+                        })}\n${note}`;
+                    })
+                    .join("\n");
+            };
 
             if (details.mode === "list") {
                 const availableAgents = details.availableAgents ?? [];
@@ -1895,13 +2112,8 @@ export default function (pi: ExtensionAPI) {
                     ? availableAgents
                     : availableAgents.slice(0, 5);
                 for (const [index, agent] of visibleAgents.entries()) {
-                    const model =
-                        agent.provider && agent.model
-                            ? `${agent.provider}/${agent.model}`
-                            : agent.model ||
-                              agent.provider ||
-                              "session-default";
-                    const tools = agent.tools?.join(", ") || "session-default";
+                    const model = getAgentModelLabel(agent);
+                    const tools = getAgentToolsLabel(agent);
                     text += `\n${renderChecklistLine({
                         label: agent.name,
                         state: "pending",
@@ -1937,16 +2149,22 @@ export default function (pi: ExtensionAPI) {
             }
 
             if (details.mode === "single" && details.results.length === 1) {
-                const r = details.results[0];
-                const state = getChecklistState(r);
-                const displayItems = getDisplayItems(r.messages);
-                const finalOutput = getFinalOutput(r.messages);
-                const usageStr = formatUsageStats(r.usage, r.model);
+                const resultStage = details.results[0];
+                const row = buildStageRow(
+                    1,
+                    resultStage.agent,
+                    resultStage.task,
+                    resultStage,
+                );
+                const usageStr = formatUsageStats(
+                    resultStage.usage,
+                    resultStage.model,
+                );
                 const statusLabel =
-                    isResultRunning(r) || isPartial
+                    isResultRunning(resultStage) || isPartial
                         ? "running"
-                        : isResultError(r)
-                          ? getResultStatusLabel(r)
+                        : isResultError(resultStage)
+                          ? getResultStatusLabel(resultStage)
                           : "completed";
 
                 if (expanded) {
@@ -1954,73 +2172,38 @@ export default function (pi: ExtensionAPI) {
                     container.addChild(
                         new Text(
                             theme.fg("toolTitle", theme.bold("subagent ")) +
-                                theme.fg("accent", r.agent) +
+                                theme.fg("accent", resultStage.agent) +
                                 theme.fg("muted", ` • ${statusLabel}`),
                             0,
                             0,
                         ),
                     );
                     addWarningsToContainer(container);
-                    container.addChild(new Spacer(1));
-                    container.addChild(
-                        new Text(
-                            renderChecklistLine({
-                                label: r.agent,
-                                state,
-                                position: 1,
-                                meta: `(${r.agentSource})`,
-                            }),
-                            0,
-                            0,
-                        ),
-                    );
-                    container.addChild(
-                        new Text(
-                            renderChecklistNote(compactText(r.task, 220)),
-                            0,
-                            0,
-                        ),
-                    );
-                    if (usageStr) {
-                        container.addChild(
-                            new Text(renderChecklistNote(usageStr), 0, 0),
-                        );
-                    }
-                    if (isResultError(r) && r.errorMessage) {
-                        container.addChild(
-                            new Text(
-                                renderChecklistNote(r.errorMessage, "error"),
-                                0,
-                                0,
-                            ),
-                        );
-                    }
-                    maybeAddStageOutput(
-                        container,
-                        r,
-                        displayItems,
-                        finalOutput,
-                    );
+                    addExpandedStageRow(container, row, 220);
                     return container;
                 }
 
                 let text =
                     theme.fg("toolTitle", theme.bold("subagent ")) +
-                    theme.fg("accent", r.agent) +
+                    theme.fg("accent", resultStage.agent) +
                     theme.fg("muted", ` • ${statusLabel}`);
                 if (warningsText.length > 0) {
                     text += `\n${warningsText.join("\n")}`;
                 }
                 text += `\n${renderChecklistLine({
-                    label: r.agent,
-                    state,
-                    position: 1,
-                    meta: `(${r.agentSource})`,
+                    label: row.label,
+                    state: row.state,
+                    position: row.position,
+                    meta: row.stage ? `(${row.stage.agentSource})` : undefined,
                 })}`;
-                text += `\n${renderChecklistNote(compactText(r.task, 140))}`;
-                text += `\n${getStagePreviewNote(r, displayItems, finalOutput)}`;
+                text += `\n${renderChecklistNote(compactText(row.task, 140))}`;
+                text += `\n${getStagePreviewNote(
+                    resultStage,
+                    row.displayItems,
+                    row.finalOutput,
+                )}`;
                 if (usageStr) text += `\n${renderChecklistNote(usageStr)}`;
-                if (displayItems.length > COLLAPSED_ITEM_COUNT) {
+                if (row.displayItems.length > COLLAPSED_ITEM_COUNT) {
                     text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
                 }
                 return new Text(text, 0, 0);
@@ -2030,244 +2213,71 @@ export default function (pi: ExtensionAPI) {
                 const plannedStages =
                     details.plannedStages && details.plannedStages.length > 0
                         ? details.plannedStages
-                        : details.results.map((r, index) => ({
-                              agent: r.agent,
-                              task: r.task,
-                              step: r.step ?? index + 1,
+                        : details.results.map((resultStage, index) => ({
+                              agent: resultStage.agent,
+                              task: resultStage.task,
+                              step: resultStage.step ?? index + 1,
                           }));
-                const rows = plannedStages.map((plannedStage, index) => {
-                    const stage = details.results.find(
-                        (resultStage) =>
-                            (resultStage.step ?? index + 1) ===
-                            (plannedStage.step ?? index + 1),
-                    );
-                    const displayItems = stage
-                        ? getDisplayItems(stage.messages)
-                        : [];
-                    const finalOutput = stage
-                        ? getFinalOutput(stage.messages)
-                        : "";
-                    return {
-                        position: plannedStage.step ?? index + 1,
-                        label: plannedStage.agent,
-                        task: plannedStage.task,
-                        stage,
-                        state: getChecklistState(stage),
-                        displayItems,
-                        finalOutput,
-                    };
-                });
-                const runningCount = rows.filter(
-                    (row) => row.state === "running",
-                ).length;
-                const doneCount = rows.filter(
-                    (row) => row.state === "done",
-                ).length;
-                const failedCount = rows.filter(
-                    (row) => row.state === "failed",
-                ).length;
-                const pendingCount = rows.filter(
-                    (row) => row.state === "pending",
-                ).length;
-                const runningRow = rows.find((row) => row.state === "running");
-                const status =
-                    runningCount > 0
-                        ? `${doneCount + failedCount}/${rows.length} done, step ${runningRow?.position ?? "?"} running`
-                        : failedCount > 0
-                          ? `${doneCount}/${rows.length} succeeded, ${failedCount} failed`
-                          : pendingCount > 0
-                            ? `${doneCount}/${rows.length} done, ${pendingCount} pending`
-                            : `${doneCount}/${rows.length} completed`;
-                const icon =
-                    runningCount > 0
-                        ? theme.fg("warning", "⏳")
-                        : failedCount > 0
-                          ? theme.fg("warning", "◐")
-                          : pendingCount > 0
-                            ? theme.fg("dim", "○")
-                            : theme.fg("success", "✓");
+                const rows = buildPlannedStageRows(
+                    plannedStages,
+                    details.results,
+                );
+                const summary = getWorkflowSummary(rows);
+                const icon = getWorkflowIcon(summary);
+                const status = getWorkflowStatus(
+                    summary,
+                    rows.length,
+                    `step ${summary.runningRow?.position ?? "?"} running`,
+                );
+                const totalUsageNote = getTotalUsageNote(details.results);
 
                 if (expanded) {
                     const container = new Container();
                     container.addChild(
                         new Text(
-                            icon +
-                                " " +
-                                theme.fg(
-                                    "toolTitle",
-                                    theme.bold("subagent chain"),
-                                ) +
-                                theme.fg("muted", ` • ${status}`),
+                            `${icon} ${theme.fg("toolTitle", theme.bold("subagent chain"))}${theme.fg("muted", ` • ${status}`)}`,
                             0,
                             0,
                         ),
                     );
                     addWarningsToContainer(container);
-
                     for (const row of rows) {
-                        container.addChild(new Spacer(1));
-                        container.addChild(
-                            new Text(
-                                renderChecklistLine({
-                                    label: row.label,
-                                    state: row.state,
-                                    position: row.position,
-                                    meta: row.stage
-                                        ? `(${row.stage.agentSource})`
-                                        : undefined,
-                                }),
-                                0,
-                                0,
-                            ),
-                        );
-                        container.addChild(
-                            new Text(
-                                renderChecklistNote(compactText(row.task, 220)),
-                                0,
-                                0,
-                            ),
-                        );
-
-                        if (!row.stage) {
-                            container.addChild(
-                                new Text(
-                                    renderChecklistNote(
-                                        "awaiting earlier steps",
-                                    ),
-                                    0,
-                                    0,
-                                ),
-                            );
-                            continue;
-                        }
-
-                        const stepUsage = formatUsageStats(
-                            row.stage.usage,
-                            row.stage.model,
-                        );
-                        if (stepUsage) {
-                            container.addChild(
-                                new Text(renderChecklistNote(stepUsage), 0, 0),
-                            );
-                        }
-
-                        maybeAddStageOutput(
-                            container,
-                            row.stage,
-                            row.displayItems,
-                            row.finalOutput,
-                        );
-
-                        if (isResultError(row.stage)) {
-                            container.addChild(
-                                new Text(
-                                    renderChecklistNote(
-                                        getResultErrorText(row.stage),
-                                        "error",
-                                    ),
-                                    0,
-                                    0,
-                                ),
-                            );
-                        }
+                        addExpandedStageRow(container, row, 220);
                     }
-
-                    const models = Array.from(
-                        new Set(
-                            details.results.map((r) => r.model).filter(Boolean),
-                        ),
-                    ).join(", ");
-                    const usageStr = formatUsageStats(
-                        aggregateUsage(details.results),
-                        models || undefined,
-                    );
-                    if (usageStr) {
+                    if (totalUsageNote) {
                         container.addChild(new Spacer(1));
-                        container.addChild(
-                            new Text(
-                                renderChecklistNote(`total: ${usageStr}`),
-                                0,
-                                0,
-                            ),
-                        );
+                        container.addChild(new Text(totalUsageNote, 0, 0));
                     }
                     return container;
                 }
 
-                let text =
-                    icon +
-                    " " +
-                    theme.fg("toolTitle", theme.bold("subagent chain")) +
-                    theme.fg("muted", ` • ${status}`);
+                let text = `${icon} ${theme.fg("toolTitle", theme.bold("subagent chain"))}${theme.fg("muted", ` • ${status}`)}`;
                 if (warningsText.length > 0) {
                     text += `\n${warningsText.join("\n")}`;
                 }
-                for (const row of rows) {
-                    text += `\n${renderChecklistLine({
-                        label: row.label,
-                        state: row.state,
-                        position: row.position,
-                        meta: row.stage
-                            ? `(${row.stage.agentSource})`
-                            : undefined,
-                    })}`;
-                    text += `\n${
-                        row.stage
-                            ? getStagePreviewNote(
-                                  row.stage,
-                                  row.displayItems,
-                                  row.finalOutput,
-                              )
-                            : renderChecklistNote(compactText(row.task, 120))
-                    }`;
-                }
-                const models = Array.from(
-                    new Set(
-                        details.results.map((r) => r.model).filter(Boolean),
-                    ),
-                ).join(", ");
-                const usageStr = formatUsageStats(
-                    aggregateUsage(details.results),
-                    models || undefined,
-                );
-                if (usageStr) {
-                    text += `\n${renderChecklistNote(`total: ${usageStr}`)}`;
+                text += `\n${renderCollapsedWorkflowRows(rows, 120)}`;
+                if (totalUsageNote) {
+                    text += `\n${totalUsageNote}`;
                 }
                 text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
                 return new Text(text, 0, 0);
             }
 
             if (details.mode === "parallel") {
-                const rows = details.results.map((stage, index) => ({
-                    position: index + 1,
-                    label: stage.agent,
-                    task: stage.task,
-                    stage,
-                    state: getChecklistState(stage),
-                    displayItems: getDisplayItems(stage.messages),
-                    finalOutput: getFinalOutput(stage.messages),
-                }));
-                const runningCount = rows.filter(
-                    (row) => row.state === "running",
-                ).length;
-                const doneCount = rows.filter(
-                    (row) => row.state === "done",
-                ).length;
-                const failedCount = rows.filter(
-                    (row) => row.state === "failed",
-                ).length;
-                const icon =
-                    runningCount > 0
-                        ? theme.fg("warning", "⏳")
-                        : failedCount > 0
-                          ? theme.fg("warning", "◐")
-                          : theme.fg("success", "✓");
-                const status =
-                    runningCount > 0
-                        ? `${doneCount + failedCount}/${rows.length} done, ${runningCount} running`
-                        : failedCount > 0
-                          ? `${doneCount}/${rows.length} succeeded, ${failedCount} failed`
-                          : `${doneCount}/${rows.length} completed`;
+                const rows = details.results.map((stage, index) =>
+                    buildStageRow(index + 1, stage.agent, stage.task, stage),
+                );
+                const summary = getWorkflowSummary(rows);
+                const icon = getWorkflowIcon(summary);
+                const status = getWorkflowStatus(
+                    summary,
+                    rows.length,
+                    `${summary.runningCount} running`,
+                );
+                const totalUsageNote =
+                    summary.runningCount === 0
+                        ? getTotalUsageNote(details.results)
+                        : null;
 
                 if (expanded) {
                     const container = new Container();
@@ -2279,81 +2289,12 @@ export default function (pi: ExtensionAPI) {
                         ),
                     );
                     addWarningsToContainer(container);
-
                     for (const row of rows) {
-                        container.addChild(new Spacer(1));
-                        container.addChild(
-                            new Text(
-                                renderChecklistLine({
-                                    label: row.label,
-                                    state: row.state,
-                                    position: row.position,
-                                    meta: `(${row.stage.agentSource})`,
-                                }),
-                                0,
-                                0,
-                            ),
-                        );
-                        container.addChild(
-                            new Text(
-                                renderChecklistNote(compactText(row.task, 220)),
-                                0,
-                                0,
-                            ),
-                        );
-                        const taskUsage = formatUsageStats(
-                            row.stage.usage,
-                            row.stage.model,
-                        );
-                        if (taskUsage) {
-                            container.addChild(
-                                new Text(renderChecklistNote(taskUsage), 0, 0),
-                            );
-                        }
-
-                        maybeAddStageOutput(
-                            container,
-                            row.stage,
-                            row.displayItems,
-                            row.finalOutput,
-                        );
-
-                        if (isResultError(row.stage)) {
-                            container.addChild(
-                                new Text(
-                                    renderChecklistNote(
-                                        getResultErrorText(row.stage),
-                                        "error",
-                                    ),
-                                    0,
-                                    0,
-                                ),
-                            );
-                        }
+                        addExpandedStageRow(container, row, 220);
                     }
-
-                    if (runningCount === 0) {
-                        const models = Array.from(
-                            new Set(
-                                details.results
-                                    .map((r) => r.model)
-                                    .filter(Boolean),
-                            ),
-                        ).join(", ");
-                        const usageStr = formatUsageStats(
-                            aggregateUsage(details.results),
-                            models || undefined,
-                        );
-                        if (usageStr) {
-                            container.addChild(new Spacer(1));
-                            container.addChild(
-                                new Text(
-                                    renderChecklistNote(`total: ${usageStr}`),
-                                    0,
-                                    0,
-                                ),
-                            );
-                        }
+                    if (totalUsageNote) {
+                        container.addChild(new Spacer(1));
+                        container.addChild(new Text(totalUsageNote, 0, 0));
                     }
                     return container;
                 }
@@ -2362,32 +2303,9 @@ export default function (pi: ExtensionAPI) {
                 if (warningsText.length > 0) {
                     text += `\n${warningsText.join("\n")}`;
                 }
-                for (const row of rows) {
-                    text += `\n${renderChecklistLine({
-                        label: row.label,
-                        state: row.state,
-                        position: row.position,
-                        meta: `(${row.stage.agentSource})`,
-                    })}`;
-                    text += `\n${getStagePreviewNote(
-                        row.stage,
-                        row.displayItems,
-                        row.finalOutput,
-                    )}`;
-                }
-                if (runningCount === 0) {
-                    const models = Array.from(
-                        new Set(
-                            details.results.map((r) => r.model).filter(Boolean),
-                        ),
-                    ).join(", ");
-                    const usageStr = formatUsageStats(
-                        aggregateUsage(details.results),
-                        models || undefined,
-                    );
-                    if (usageStr) {
-                        text += `\n${renderChecklistNote(`total: ${usageStr}`)}`;
-                    }
+                text += `\n${renderCollapsedWorkflowRows(rows, 120)}`;
+                if (totalUsageNote) {
+                    text += `\n${totalUsageNote}`;
                 }
                 text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
                 return new Text(text, 0, 0);
