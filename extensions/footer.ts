@@ -207,6 +207,18 @@ export default function (pi: ExtensionAPI) {
     let sessionCacheRead = 0;
     let _sessionCacheWrite = 0;
     let sessionCost = 0;
+    let agentRunning = false;
+    let agentMessageBaseline = 0;
+
+    const countMessages = (entries: SessionEntryPayload[]) => {
+        let count = 0;
+        for (const entry of entries) {
+            if (entry.type === "message") {
+                count++;
+            }
+        }
+        return count;
+    };
 
     const applyFooter = (ctx: ExtensionContext) => {
         ctx.ui.setFooter((tui, theme, footerData) => {
@@ -275,14 +287,14 @@ export default function (pi: ExtensionAPI) {
                     }
 
                     const branch = ctx.sessionManager.getBranch();
-
-                    // Count total messages
-                    let messageCount = 0;
-                    for (const entry of branch) {
-                        if (entry.type === "message") {
-                            messageCount++;
-                        }
-                    }
+                    const messageCount = countMessages(branch);
+                    const ongoingMessageCount = agentRunning
+                        ? Math.max(0, messageCount - agentMessageBaseline)
+                        : 0;
+                    const displayedMessageCount =
+                        ongoingMessageCount > 0
+                            ? `${messageCount - ongoingMessageCount}+${ongoingMessageCount}`
+                            : `${messageCount}`;
 
                     let currentRunTimeMs = 0;
                     let lastMsgEntry: SessionEntryPayload | null = null;
@@ -315,6 +327,9 @@ export default function (pi: ExtensionAPI) {
                                 ? ` 🧠 off`
                                 : ` 🧠 ${currentThinkingLevel}`;
                     }
+
+                    const systemPrompt = ctx.getSystemPrompt();
+                    const systemPromptSide = `📝 ${systemPrompt.length}`;
 
                     let sessionSide = "";
                     let isRunning = false;
@@ -361,9 +376,7 @@ export default function (pi: ExtensionAPI) {
                     isRunningState = isRunning;
 
                     const timeStr = formatRunTime(currentRunTimeMs);
-                    sessionSide += sessionSide
-                        ? ` ⏳ ${timeStr}`
-                        : `⏳ ${timeStr}`;
+                    sessionSide = `${systemPromptSide}  ⏳ ${timeStr}`;
 
                     // --- BOTTOM LINE (Stats & Statuses) ---
                     const tokensDisplay =
@@ -383,7 +396,7 @@ export default function (pi: ExtensionAPI) {
                         cacheRead: combinedCacheRead,
                         cost: combinedCost,
                         contextText: contextTokensDisplay,
-                        count: messageCount,
+                        count: displayedMessageCount,
                     }).map((part) =>
                         part.startsWith("📐")
                             ? theme.fg(contextColor, part)
@@ -423,6 +436,18 @@ export default function (pi: ExtensionAPI) {
     };
 
     pi.on("session_start", (_event, ctx) => {
+        agentRunning = false;
+        agentMessageBaseline = 0;
         applyFooter(ctx);
+    });
+
+    pi.on("agent_start", (_event, ctx) => {
+        agentRunning = true;
+        agentMessageBaseline = countMessages(ctx.sessionManager.getBranch());
+    });
+
+    pi.on("agent_end", () => {
+        agentRunning = false;
+        agentMessageBaseline = 0;
     });
 }
