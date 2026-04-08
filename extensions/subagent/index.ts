@@ -6,7 +6,10 @@
  */
 
 import { StringEnum } from "@mariozechner/pi-ai";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type {
+    ExtensionAPI,
+    ExtensionContext,
+} from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
     type AgentConfig,
@@ -47,6 +50,18 @@ import {
     mapWithConcurrencyLimit,
     runSingleAgent,
 } from "./runner.js";
+import {
+    addSubagentRun,
+    clearSubagentHistory,
+    getRunningAgentsCount,
+    getSubagentStatsArray,
+    isWidgetExpanded,
+    renderSubagentWidgetLines,
+    SUBAGENT_WIDGET_ID,
+    SUBAGENT_WIDGET_TOGGLE_SHORTCUT,
+    setRunningAgent,
+    toggleWidgetExpanded,
+} from "./state.js";
 
 function formatDiscoveryWarnings(warnings: string[]): string {
     if (warnings.length === 0) return "";
@@ -168,6 +183,16 @@ const ExecutionParams = Type.Object({
 });
 
 type ExecutionMode = "single" | "parallel" | "chain";
+type MakeDetails = (
+    mode: ExecutionMode,
+) => (results: SingleResult[]) => SubagentDetails;
+type ToolUpdate = Parameters<
+    Parameters<ExtensionAPI["registerTool"]>[0]["execute"]
+>[3];
+
+function createTextContent(text: string) {
+    return [{ type: "text" as const, text }];
+}
 
 function createEmptyResult(agent: string, task: DelegatedTask): SingleResult {
     return {
@@ -189,11 +214,351 @@ function createEmptyResult(agent: string, task: DelegatedTask): SingleResult {
     };
 }
 
+function addTargetValidationErrors(
+    errors: string[],
+    label: string,
+    agentName: string | undefined,
+    task: DelegatedTask | undefined,
+    cwd: string | undefined,
+) {
+    if (agentName !== undefined && !agentName.trim()) {
+        errors.push(`${label} agent name cannot be empty.`);
+    }
+    if (task !== undefined && isBlankTask(task)) {
+        errors.push(`${label} task cannot be empty.`);
+    }
+    if (cwd && !isDirectoryPath(cwd)) {
+        errors.push(
+            `${label} cwd does not exist or is not a directory: ${cwd}`,
+        );
+    }
+}
+
+function sendSingleResultUpdate(
+    onUpdate: ToolUpdate,
+    mode: ExecutionMode,
+    makeDetails: MakeDetails,
+    result: SingleResult,
+    previousResults: SingleResult[] = [],
+) {
+    if (!onUpdate) {
+        return;
+    }
+
+    onUpdate({
+        content: createTextContent(
+            getFinalOutput(result.messages) || "(running...)",
+        ),
+        details: makeDetails(mode)([...previousResults, result]),
+    });
+}
+
 export default function (pi: ExtensionAPI) {
     registerSubagentMessageRenderer(pi);
 
     if (process.env.PI_IS_SUBAGENT === "1") {
         return;
+    }
+
+    let activeContext: ExtensionContext | null = null;
+
+    const syncSubagentUi = (ctx: ExtensionContext) => {
+        activeContext = ctx;
+        if (!ctx.hasUI) {
+            return;
+        }
+
+        const statsArray = getSubagentStatsArray();
+        const runningCount = getRunningAgentsCount();
+        if (statsArray.length === 0 && runningCount === 0) {
+            ctx.ui.setStatus(SUBAGENT_WIDGET_ID, undefined);
+            ctx.ui.setWidget(SUBAGENT_WIDGET_ID, undefined);
+            return;
+        }
+
+        ctx.ui.setStatus(SUBAGENT_WIDGET_ID, undefined);
+        ctx.ui.setWidget(SUBAGENT_WIDGET_ID, (_tui, theme) => ({
+            render(width: number): string[] {
+                return renderSubagentWidgetLines(theme, width);
+            },
+            invalidate() {},
+        }));
+    };
+
+    const reconstructState = (ctx: ExtensionContext) => {
+        activeContext = ctx;
+        clearSubagentHistory();
+
+        for (const entry of ctx.sessionManager.getBranch()) {
+            if (entry.type === "message") {
+                const message = entry.message;
+                if (
+                    message.role === "toolResult" &&
+                    message.toolName === "subagent"
+                ) {
+                    const details = message.details as
+                        | SubagentDetails
+                        | undefined;
+                    if (details && details.results) {
+                        for (const res of details.results) {
+                            addSubagentRun(res);
+                        }
+                    }
+                }
+            }
+        }
+
+        syncSubagentUi(ctx);
+    };
+
+    const toggleSubagentWidget = (ctx: ExtensionContext) => {
+        toggleWidgetExpanded();
+        syncSubagentUi(ctx);
+        ctx.ui.notify(
+            `Subagent widget ${isWidgetExpanded() ? "expanded" : "collapsed"}`,
+            "info",
+        );
+    };
+
+    pi.on("session_start", async (_event, ctx) => reconstructState(ctx));
+    pi.on("session_tree", async (_event, ctx) => reconstructState(ctx));
+
+    pi.registerCommand("subagents-widget", {
+        description: "Toggle compact/expanded subagents widget",
+        handler: async (_args, ctx) => toggleSubagentWidget(ctx),
+    });
+
+    pi.registerShortcut(SUBAGENT_WIDGET_TOGGLE_SHORTCUT, {
+        description: "Toggle expanded subagents widget",
+        handler: async (ctx) => toggleSubagentWidget(ctx),
+    });
+
+    const notifySubagentStatus = (
+        agentName: string,
+        isRunning: boolean,
+        result?: SingleResult,
+    ) => {
+        setRunningAgent(agentName, isRunning);
+        if (result) addSubagentRun(result);
+        if (activeContext) syncSubagentUi(activeContext);
+    };
+
+    async function executeChainMode(
+        chainSteps: ChainStepSpec[],
+        agents: AgentConfig[],
+        warnings: string[],
+        makeDetails: MakeDetails,
+        ctx: ExtensionContext,
+        signal: AbortSignal | undefined,
+        onUpdate: ToolUpdate,
+    ) {
+        const mode = "chain" as const;
+        const results: SingleResult[] = [];
+        let previousResult: SingleResult | null = null;
+
+        for (let index = 0; index < chainSteps.length; index++) {
+            const step = chainSteps[index];
+            const resolvedTask =
+                previousResult === null
+                    ? step.task
+                    : withInterpolatedTask(step.task, {
+                          "{previous}": buildChainHandoff(previousResult),
+                          "{previous_output}":
+                              getInterpolatedPreviousOutput(previousResult),
+                          "{previous_agent}": previousResult.agent,
+                      });
+
+            notifySubagentStatus(step.agent, true);
+
+            const result = await runSingleAgent(
+                ctx.cwd,
+                agents,
+                step.agent,
+                resolvedTask,
+                step.cwd,
+                index + 1,
+                signal,
+                onUpdate
+                    ? (currentResult) => {
+                          sendSingleResultUpdate(
+                              onUpdate,
+                              mode,
+                              makeDetails,
+                              currentResult,
+                              results,
+                          );
+                      }
+                    : undefined,
+            );
+
+            notifySubagentStatus(step.agent, false, result);
+            results.push(result);
+
+            if (isResultError(result)) {
+                emitFinalDisplayMessage(pi, mode, results, warnings);
+                return {
+                    content: createTextContent(
+                        `Chain stopped at step ${index + 1} (${step.agent}): ${getResultErrorText(result)}`,
+                    ),
+                    details: makeDetails(mode)(results),
+                    isError: true,
+                };
+            }
+            previousResult = result;
+        }
+
+        emitFinalDisplayMessage(pi, mode, results, warnings);
+        return {
+            content: createTextContent(
+                getFinalOutput(results[results.length - 1].messages) ||
+                    "(no output)",
+            ),
+            details: makeDetails(mode)(results),
+        };
+    }
+
+    async function executeParallelMode(
+        parallelTasks: TaskSpec[],
+        agents: AgentConfig[],
+        warnings: string[],
+        makeDetails: MakeDetails,
+        ctx: ExtensionContext,
+        signal: AbortSignal | undefined,
+        onUpdate: ToolUpdate,
+    ) {
+        const mode = "parallel" as const;
+        if (parallelTasks.length > MAX_PARALLEL_TASKS) {
+            return {
+                content: createTextContent(
+                    `Too many parallel tasks (${parallelTasks.length}). Max is ${MAX_PARALLEL_TASKS}.`,
+                ),
+                details: makeDetails(mode)([]),
+            };
+        }
+
+        const allResults = parallelTasks.map((task) =>
+            createEmptyResult(task.agent, task.task),
+        );
+        const emitParallelUpdate = () => {
+            if (!onUpdate) return;
+            const running = allResults.filter(
+                (result) => result.exitCode === -1,
+            ).length;
+            const done = allResults.filter(
+                (result) => result.exitCode !== -1,
+            ).length;
+            onUpdate({
+                content: createTextContent(
+                    `Parallel: ${done}/${allResults.length} done, ${running} running...`,
+                ),
+                details: makeDetails(mode)([...allResults]),
+            });
+        };
+
+        const results = await mapWithConcurrencyLimit<TaskSpec, SingleResult>(
+            parallelTasks,
+            MAX_CONCURRENCY,
+            async (task, index) => {
+                notifySubagentStatus(task.agent, true);
+
+                const result = await runSingleAgent(
+                    ctx.cwd,
+                    agents,
+                    task.agent,
+                    task.task,
+                    task.cwd,
+                    undefined,
+                    signal,
+                    (currentResult) => {
+                        allResults[index] = currentResult;
+                        emitParallelUpdate();
+                    },
+                );
+
+                notifySubagentStatus(task.agent, false, result);
+                allResults[index] = result;
+                emitParallelUpdate();
+                return result;
+            },
+        );
+
+        const successCount = results.filter((result) =>
+            isResultSuccess(result),
+        ).length;
+        const failureCount = results.filter((result) =>
+            isResultError(result),
+        ).length;
+        const summaries = results.map((result) => {
+            const output = getResultDisplayOutput(result);
+            const preview =
+                output.slice(0, 100) + (output.length > 100 ? "..." : "");
+            return `[${result.agent}] ${isResultSuccess(result) ? "completed" : "failed"}: ${preview || "(no output)"}`;
+        });
+
+        emitFinalDisplayMessage(pi, mode, results, warnings);
+        return {
+            content: createTextContent(
+                `Parallel: ${successCount}/${results.length} succeeded${failureCount > 0 ? `, ${failureCount} failed` : ""}\n\n${summaries.join("\n\n")}`,
+            ),
+            details: makeDetails(mode)(results),
+            isError: failureCount > 0,
+        };
+    }
+
+    async function executeSingleMode(
+        agentName: string,
+        taskDesc: DelegatedTask,
+        taskCwd: string | undefined,
+        agents: AgentConfig[],
+        warnings: string[],
+        makeDetails: MakeDetails,
+        ctx: ExtensionContext,
+        signal: AbortSignal | undefined,
+        onUpdate: ToolUpdate,
+    ) {
+        const mode = "single" as const;
+        notifySubagentStatus(agentName, true);
+
+        const result = await runSingleAgent(
+            ctx.cwd,
+            agents,
+            agentName,
+            taskDesc,
+            taskCwd,
+            undefined,
+            signal,
+            onUpdate
+                ? (currentResult) => {
+                      sendSingleResultUpdate(
+                          onUpdate,
+                          mode,
+                          makeDetails,
+                          currentResult,
+                      );
+                  }
+                : undefined,
+        );
+
+        notifySubagentStatus(agentName, false, result);
+
+        if (isResultError(result)) {
+            emitFinalDisplayMessage(pi, mode, [result], warnings);
+            return {
+                content: createTextContent(
+                    `Agent ${result.stopReason || "failed"}: ${getResultErrorText(result)}`,
+                ),
+                details: makeDetails(mode)([result]),
+                isError: true,
+            };
+        }
+
+        emitFinalDisplayMessage(pi, mode, [result], warnings);
+        return {
+            content: createTextContent(
+                getFinalOutput(result.messages) || "(no output)",
+            ),
+            details: makeDetails(mode)([result]),
+        };
     }
 
     pi.registerTool({
@@ -223,12 +588,9 @@ export default function (pi: ExtensionAPI) {
 
             if ("action" in params && params.action === "list") {
                 return {
-                    content: [
-                        {
-                            type: "text",
-                            text: `Available agents (${agentScope}):\n${agentListText}${formatDiscoveryWarnings(discovery.warnings)}`,
-                        },
-                    ],
+                    content: createTextContent(
+                        `Available agents (${agentScope}):\n${agentListText}${formatDiscoveryWarnings(discovery.warnings)}`,
+                    ),
                     details: {
                         mode: "list",
                         agentScope,
@@ -310,35 +672,23 @@ export default function (pi: ExtensionAPI) {
                 });
 
             const validationErrors: string[] = [];
-            if (executionParams.cwd && !isDirectoryPath(executionParams.cwd)) {
-                validationErrors.push(
-                    `Single-mode cwd does not exist or is not a directory: ${executionParams.cwd}`,
+            if (hasSingle) {
+                addTargetValidationErrors(
+                    validationErrors,
+                    "Single-mode",
+                    executionParams.agent,
+                    executionParams.task,
+                    executionParams.cwd,
                 );
-            }
-            if (hasSingle && !executionParams.agent?.trim()) {
-                validationErrors.push(
-                    "Single-mode agent name cannot be empty.",
-                );
-            }
-            if (executionParams.task && isBlankTask(executionParams.task)) {
-                validationErrors.push("Single-mode task cannot be empty.");
             }
             for (const [index, step] of chainSteps.entries()) {
-                if (!step.agent.trim()) {
-                    validationErrors.push(
-                        `Chain step ${index + 1} agent name cannot be empty.`,
-                    );
-                }
-                if (isBlankTask(step.task)) {
-                    validationErrors.push(
-                        `Chain step ${index + 1} task cannot be empty.`,
-                    );
-                }
-                if (step.cwd && !isDirectoryPath(step.cwd)) {
-                    validationErrors.push(
-                        `Chain step ${index + 1} cwd does not exist or is not a directory: ${step.cwd}`,
-                    );
-                }
+                addTargetValidationErrors(
+                    validationErrors,
+                    `Chain step ${index + 1}`,
+                    step.agent,
+                    step.task,
+                    step.cwd,
+                );
                 if (index === 0 && taskReferencesPreviousStep(step.task)) {
                     validationErrors.push(
                         "Chain step 1 cannot use previous-step placeholders because there is no previous step.",
@@ -346,21 +696,13 @@ export default function (pi: ExtensionAPI) {
                 }
             }
             for (const [index, task] of parallelTasks.entries()) {
-                if (!task.agent.trim()) {
-                    validationErrors.push(
-                        `Parallel task ${index + 1} agent name cannot be empty.`,
-                    );
-                }
-                if (isBlankTask(task.task)) {
-                    validationErrors.push(
-                        `Parallel task ${index + 1} task cannot be empty.`,
-                    );
-                }
-                if (task.cwd && !isDirectoryPath(task.cwd)) {
-                    validationErrors.push(
-                        `Parallel task ${index + 1} cwd does not exist or is not a directory: ${task.cwd}`,
-                    );
-                }
+                addTargetValidationErrors(
+                    validationErrors,
+                    `Parallel task ${index + 1}`,
+                    task.agent,
+                    task.task,
+                    task.cwd,
+                );
             }
 
             const unknownAgentNames = Array.from(requestedAgentNames).filter(
@@ -369,12 +711,9 @@ export default function (pi: ExtensionAPI) {
 
             if (modeCount !== 1) {
                 return {
-                    content: [
-                        {
-                            type: "text",
-                            text: `Invalid parameters. Provide exactly one mode.\n\nAvailable agents:\n${agentListText}${formatDiscoveryWarnings(discovery.warnings)}`,
-                        },
-                    ],
+                    content: createTextContent(
+                        `Invalid parameters. Provide exactly one mode.\n\nAvailable agents:\n${agentListText}${formatDiscoveryWarnings(discovery.warnings)}`,
+                    ),
                     details: makeDetails("single")([]),
                     isError: true,
                 };
@@ -382,12 +721,9 @@ export default function (pi: ExtensionAPI) {
 
             if (validationErrors.length > 0) {
                 return {
-                    content: [
-                        {
-                            type: "text",
-                            text: `Invalid subagent request:\n${validationErrors.map((error) => `- ${error}`).join("\n")}\n\nAvailable agents:\n${agentListText}${formatDiscoveryWarnings(discovery.warnings)}`,
-                        },
-                    ],
+                    content: createTextContent(
+                        `Invalid subagent request:\n${validationErrors.map((error) => `- ${error}`).join("\n")}\n\nAvailable agents:\n${agentListText}${formatDiscoveryWarnings(discovery.warnings)}`,
+                    ),
                     details: makeDetails(detectedMode)([]),
                     isError: true,
                 };
@@ -395,12 +731,9 @@ export default function (pi: ExtensionAPI) {
 
             if (unknownAgentNames.length > 0) {
                 return {
-                    content: [
-                        {
-                            type: "text",
-                            text: `Unknown agent${unknownAgentNames.length > 1 ? "s" : ""}: ${unknownAgentNames.join(", ")}\n\nAvailable agents:\n${agentListText}${formatDiscoveryWarnings(discovery.warnings)}`,
-                        },
-                    ],
+                    content: createTextContent(
+                        `Unknown agent${unknownAgentNames.length > 1 ? "s" : ""}: ${unknownAgentNames.join(", ")}\n\nAvailable agents:\n${agentListText}${formatDiscoveryWarnings(discovery.warnings)}`,
+                    ),
                     details: makeDetails(detectedMode)([]),
                     isError: true,
                 };
@@ -420,12 +753,9 @@ export default function (pi: ExtensionAPI) {
             ) {
                 if (!ctx.hasUI) {
                     return {
-                        content: [
-                            {
-                                type: "text",
-                                text: "Refusing to run project-local agents without interactive approval. Re-run with confirmProjectAgents: false only if you trust this repository.",
-                            },
-                        ],
+                        content: createTextContent(
+                            "Refusing to run project-local agents without interactive approval. Re-run with confirmProjectAgents: false only if you trust this repository.",
+                        ),
                         details: makeDetails(detectedMode)([]),
                         isError: true,
                     };
@@ -441,12 +771,9 @@ export default function (pi: ExtensionAPI) {
                 );
                 if (!ok) {
                     return {
-                        content: [
-                            {
-                                type: "text",
-                                text: "Canceled: project-local agents not approved.",
-                            },
-                        ],
+                        content: createTextContent(
+                            "Canceled: project-local agents not approved.",
+                        ),
                         details: makeDetails(detectedMode)([]),
                         isError: true,
                     };
@@ -454,244 +781,47 @@ export default function (pi: ExtensionAPI) {
             }
 
             if (chainSteps.length > 0) {
-                const mode = "chain" as const;
-                const results: SingleResult[] = [];
-                let previousResult: SingleResult | null = null;
-
-                for (let index = 0; index < chainSteps.length; index++) {
-                    const step = chainSteps[index];
-                    const resolvedTask =
-                        previousResult === null
-                            ? step.task
-                            : withInterpolatedTask(step.task, {
-                                  "{previous}":
-                                      buildChainHandoff(previousResult),
-                                  "{previous_output}":
-                                      getInterpolatedPreviousOutput(
-                                          previousResult,
-                                      ),
-                                  "{previous_agent}": previousResult.agent,
-                              });
-
-                    const result = await runSingleAgent(
-                        ctx.cwd,
-                        agents,
-                        step.agent,
-                        resolvedTask,
-                        step.cwd,
-                        index + 1,
-                        signal,
-                        onUpdate
-                            ? (currentResult) => {
-                                  const allResults = [
-                                      ...results,
-                                      currentResult,
-                                  ];
-                                  onUpdate({
-                                      content: [
-                                          {
-                                              type: "text",
-                                              text:
-                                                  getFinalOutput(
-                                                      currentResult.messages,
-                                                  ) || "(running...)",
-                                          },
-                                      ],
-                                      details: makeDetails(mode)(allResults),
-                                  });
-                              }
-                            : undefined,
-                    );
-                    results.push(result);
-
-                    if (isResultError(result)) {
-                        emitFinalDisplayMessage(
-                            pi,
-                            mode,
-                            results,
-                            discovery.warnings,
-                        );
-                        return {
-                            content: [
-                                {
-                                    type: "text",
-                                    text: `Chain stopped at step ${index + 1} (${step.agent}): ${getResultErrorText(result)}`,
-                                },
-                            ],
-                            details: makeDetails(mode)(results),
-                            isError: true,
-                        };
-                    }
-                    previousResult = result;
-                }
-
-                emitFinalDisplayMessage(pi, mode, results, discovery.warnings);
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text:
-                                getFinalOutput(
-                                    results[results.length - 1].messages,
-                                ) || "(no output)",
-                        },
-                    ],
-                    details: makeDetails(mode)(results),
-                };
+                return await executeChainMode(
+                    chainSteps,
+                    agents,
+                    discovery.warnings,
+                    makeDetails,
+                    ctx,
+                    signal,
+                    onUpdate,
+                );
             }
 
             if (parallelTasks.length > 0) {
-                const mode = "parallel" as const;
-                if (parallelTasks.length > MAX_PARALLEL_TASKS) {
-                    return {
-                        content: [
-                            {
-                                type: "text",
-                                text: `Too many parallel tasks (${parallelTasks.length}). Max is ${MAX_PARALLEL_TASKS}.`,
-                            },
-                        ],
-                        details: makeDetails(mode)([]),
-                    };
-                }
-
-                const allResults = parallelTasks.map((task) =>
-                    createEmptyResult(task.agent, task.task),
+                return await executeParallelMode(
+                    parallelTasks,
+                    agents,
+                    discovery.warnings,
+                    makeDetails,
+                    ctx,
+                    signal,
+                    onUpdate,
                 );
-                const emitParallelUpdate = () => {
-                    if (!onUpdate) return;
-                    const running = allResults.filter(
-                        (result) => result.exitCode === -1,
-                    ).length;
-                    const done = allResults.filter(
-                        (result) => result.exitCode !== -1,
-                    ).length;
-                    onUpdate({
-                        content: [
-                            {
-                                type: "text",
-                                text: `Parallel: ${done}/${allResults.length} done, ${running} running...`,
-                            },
-                        ],
-                        details: makeDetails(mode)([...allResults]),
-                    });
-                };
-
-                const results = await mapWithConcurrencyLimit<
-                    TaskSpec,
-                    SingleResult
-                >(parallelTasks, MAX_CONCURRENCY, async (task, index) => {
-                    const result = await runSingleAgent(
-                        ctx.cwd,
-                        agents,
-                        task.agent,
-                        task.task,
-                        task.cwd,
-                        undefined,
-                        signal,
-                        (currentResult) => {
-                            allResults[index] = currentResult;
-                            emitParallelUpdate();
-                        },
-                    );
-                    allResults[index] = result;
-                    emitParallelUpdate();
-                    return result;
-                });
-
-                const successCount = results.filter((result) =>
-                    isResultSuccess(result),
-                ).length;
-                const failureCount = results.filter((result) =>
-                    isResultError(result),
-                ).length;
-                const summaries = results.map((result) => {
-                    const output = getResultDisplayOutput(result);
-                    const preview =
-                        output.slice(0, 100) +
-                        (output.length > 100 ? "..." : "");
-                    return `[${result.agent}] ${isResultSuccess(result) ? "completed" : "failed"}: ${preview || "(no output)"}`;
-                });
-
-                emitFinalDisplayMessage(pi, mode, results, discovery.warnings);
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: `Parallel: ${successCount}/${results.length} succeeded${failureCount > 0 ? `, ${failureCount} failed` : ""}\n\n${summaries.join("\n\n")}`,
-                        },
-                    ],
-                    details: makeDetails(mode)(results),
-                    isError: failureCount > 0,
-                };
             }
 
             if (executionParams.agent && executionParams.task) {
-                const mode = "single" as const;
-                const result = await runSingleAgent(
-                    ctx.cwd,
-                    agents,
+                return await executeSingleMode(
                     executionParams.agent,
                     executionParams.task,
                     executionParams.cwd,
-                    undefined,
+                    agents,
+                    discovery.warnings,
+                    makeDetails,
+                    ctx,
                     signal,
-                    onUpdate
-                        ? (currentResult) => {
-                              onUpdate({
-                                  content: [
-                                      {
-                                          type: "text",
-                                          text:
-                                              getFinalOutput(
-                                                  currentResult.messages,
-                                              ) || "(running...)",
-                                      },
-                                  ],
-                                  details: makeDetails(mode)([currentResult]),
-                              });
-                          }
-                        : undefined,
+                    onUpdate,
                 );
-                if (isResultError(result)) {
-                    emitFinalDisplayMessage(
-                        pi,
-                        mode,
-                        [result],
-                        discovery.warnings,
-                    );
-                    return {
-                        content: [
-                            {
-                                type: "text",
-                                text: `Agent ${result.stopReason || "failed"}: ${getResultErrorText(result)}`,
-                            },
-                        ],
-                        details: makeDetails(mode)([result]),
-                        isError: true,
-                    };
-                }
-
-                emitFinalDisplayMessage(pi, mode, [result], discovery.warnings);
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text:
-                                getFinalOutput(result.messages) ||
-                                "(no output)",
-                        },
-                    ],
-                    details: makeDetails(mode)([result]),
-                };
             }
 
             return {
-                content: [
-                    {
-                        type: "text",
-                        text: `Invalid parameters. Available agents:\n${agentListText}${formatDiscoveryWarnings(discovery.warnings)}`,
-                    },
-                ],
+                content: createTextContent(
+                    `Invalid parameters. Available agents:\n${agentListText}${formatDiscoveryWarnings(discovery.warnings)}`,
+                ),
                 details: makeDetails("single")([]),
                 isError: true,
             };
