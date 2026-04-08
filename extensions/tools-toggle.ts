@@ -77,7 +77,7 @@ export default function toolsExtension(pi: ExtensionAPI) {
     }
 
     // Register /tools command
-    pi.registerCommand("tools", {
+    pi.registerCommand("tools-toggle", {
         description: "Enable/disable tools",
         handler: async (_args, ctx) => {
             // Refresh tool list
