@@ -129,6 +129,14 @@ export default function (pi: ExtensionAPI) {
 
                     const branch = ctx.sessionManager.getBranch();
 
+                    // Count total messages
+                    let messageCount = 0;
+                    for (const entry of branch) {
+                        if (entry.type === "message") {
+                            messageCount++;
+                        }
+                    }
+
                     let currentRunTimeMs = 0;
                     let lastMsgEntry: SessionEntryPayload | null = null;
                     let lastUserEntry: SessionEntryPayload | null = null;
@@ -281,6 +289,8 @@ export default function (pi: ExtensionAPI) {
                     statsParts.push(
                         theme.fg("dim", `💸$${sessionCost.toFixed(3)}`),
                     );
+
+                    statsParts.push(theme.fg("dim", `💬${messageCount}`));
 
                     let statsLeft = statsParts.join(theme.fg("dim", "  "));
 
