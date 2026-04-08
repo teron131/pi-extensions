@@ -190,6 +190,336 @@ const truncateHistoricalText = (text: string, limit: number): string => {
     return `${text.slice(0, limit)}\n\n[... Aggressively truncated ${text.length - limit} chars from previous turn]`;
 };
 
+type ToolCallLocation = {
+    assistantMessageIndex: number;
+    contentIndex: number;
+    toolName: string;
+    args: Record<string, unknown>;
+};
+
+type HistoricalPruningPlan = {
+    prunedMessageIndexes: Set<number>;
+    prunedToolCallIds: Set<string>;
+};
+
+type BashExecutionMessage = {
+    role: "bashExecution";
+    output?: string;
+    command?: string;
+};
+
+const stableSerialize = (value: unknown): string => {
+    if (value === null) return "null";
+    if (value === undefined) return "undefined";
+    if (typeof value === "string") return JSON.stringify(value);
+    if (typeof value === "number" || typeof value === "boolean") {
+        return String(value);
+    }
+    if (Array.isArray(value)) {
+        return `[${value.map((item) => stableSerialize(item)).join(",")}]`;
+    }
+    if (typeof value === "object") {
+        const entries = Object.entries(value as Record<string, unknown>).sort(
+            ([left], [right]) => left.localeCompare(right),
+        );
+        return `{${entries
+            .map(
+                ([key, entryValue]) =>
+                    `${JSON.stringify(key)}:${stableSerialize(entryValue)}`,
+            )
+            .join(",")}}`;
+    }
+    return JSON.stringify(String(value));
+};
+
+const buildToolCallLocations = (
+    messages: Array<{ role: string; content?: unknown }>,
+): Map<string, ToolCallLocation> => {
+    const locations = new Map<string, ToolCallLocation>();
+
+    for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i] as {
+            role: string;
+            content?: Array<{
+                type?: string;
+                id?: string;
+                name?: string;
+                arguments?: Record<string, unknown>;
+            }>;
+        };
+        if (msg.role !== "assistant" || !Array.isArray(msg.content)) {
+            continue;
+        }
+
+        for (let j = 0; j < msg.content.length; j++) {
+            const block = msg.content[j];
+            if (
+                block?.type !== "toolCall" ||
+                typeof block.id !== "string" ||
+                typeof block.name !== "string"
+            ) {
+                continue;
+            }
+
+            locations.set(block.id, {
+                assistantMessageIndex: i,
+                contentIndex: j,
+                toolName: block.name,
+                args:
+                    block.arguments && typeof block.arguments === "object"
+                        ? block.arguments
+                        : {},
+            });
+        }
+    }
+
+    return locations;
+};
+
+const getOperationKey = (
+    toolName: string,
+    args: Record<string, unknown> | undefined,
+): string | null => {
+    if (!args) {
+        return null;
+    }
+
+    if (isMutationTool(toolName) && typeof args.path === "string") {
+        return `${toolName}:path:${args.path}`;
+    }
+
+    return `${toolName}:args:${stableSerialize(args)}`;
+};
+
+const getToolResultText = (message: {
+    content?: Array<{ type?: string; text?: string }>;
+}): string | null => {
+    if (!Array.isArray(message.content)) {
+        return null;
+    }
+
+    const text = message.content
+        .filter(
+            (block): block is { type: "text"; text: string } =>
+                block.type === "text" && typeof block.text === "string",
+        )
+        .map((block) => block.text)
+        .join("\n");
+
+    return text ? text : null;
+};
+
+const getToolOperationKey = (
+    message: { toolCallId?: string; toolName?: string },
+    toolCallLocations: Map<string, ToolCallLocation>,
+): string | null => {
+    if (typeof message.toolCallId !== "string") {
+        return null;
+    }
+
+    const toolCall = toolCallLocations.get(message.toolCallId);
+    const toolName = message.toolName || toolCall?.toolName;
+    if (!toolCall || !toolName) {
+        return null;
+    }
+
+    return getOperationKey(toolName, toolCall.args);
+};
+
+const getToolPath = (
+    message: { toolCallId?: string },
+    toolCallLocations: Map<string, ToolCallLocation>,
+): string | null => {
+    if (typeof message.toolCallId !== "string") {
+        return null;
+    }
+
+    const toolCall = toolCallLocations.get(message.toolCallId);
+    return typeof toolCall?.args.path === "string" ? toolCall.args.path : null;
+};
+
+const isMutationTool = (toolName: string) =>
+    toolName === "write" || toolName === "edit";
+
+const getToolDedupKey = (
+    message: {
+        toolCallId?: string;
+        toolName?: string;
+        content?: Array<{ type?: string; text?: string }>;
+    },
+    toolCallLocations: Map<string, ToolCallLocation>,
+): string | null => {
+    const operationKey = getToolOperationKey(message, toolCallLocations);
+    const text = getToolResultText(message);
+    if (!operationKey || !text) {
+        return null;
+    }
+    return `${operationKey}:output:${text}`;
+};
+
+const isBashExecutionMessage = (message: {
+    role: string;
+}): message is BashExecutionMessage => message.role === "bashExecution";
+
+const getBashDedupKey = (message: BashExecutionMessage): string | null => {
+    if (typeof message.output !== "string" || !message.output) {
+        return null;
+    }
+
+    const command = typeof message.command === "string" ? message.command : "";
+    return `bash:${command}:output:${message.output}`;
+};
+
+const computeHistoricalPruningPlan = <
+    TMessage extends { role: string; content?: unknown },
+>(
+    messages: TMessage[],
+    truncationBoundaryIndex: number,
+): HistoricalPruningPlan => {
+    const prunedMessageIndexes = new Set<number>();
+    const prunedToolCallIds = new Set<string>();
+    const toolCallLocations = buildToolCallLocations(messages);
+    const seenToolOutputs = new Set<string>();
+    const seenBashOutputs = new Set<string>();
+    const seenMutatedPaths = new Set<string>();
+    const seenSuccessfulOperations = new Set<string>();
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i] as {
+            role: string;
+            toolCallId?: string;
+            toolName?: string;
+            content?: Array<{ type?: string; text?: string }>;
+            isError?: boolean;
+            output?: string;
+            command?: string;
+        };
+        const isHistorical = i < truncationBoundaryIndex;
+
+        if (msg.role === "toolResult") {
+            const dedupKey = getToolDedupKey(msg, toolCallLocations);
+            const operationKey = getToolOperationKey(msg, toolCallLocations);
+            const path = getToolPath(msg, toolCallLocations);
+            const hasLaterDuplicate =
+                dedupKey !== null && seenToolOutputs.has(dedupKey);
+            const hasLaterWrite =
+                typeof msg.toolName === "string" &&
+                path !== null &&
+                isMutationTool(msg.toolName) &&
+                seenMutatedPaths.has(path);
+            const hasLaterSuccess =
+                msg.isError === true &&
+                operationKey !== null &&
+                seenSuccessfulOperations.has(operationKey);
+
+            if (
+                isHistorical &&
+                (hasLaterDuplicate || hasLaterWrite || hasLaterSuccess)
+            ) {
+                prunedMessageIndexes.add(i);
+                if (typeof msg.toolCallId === "string") {
+                    prunedToolCallIds.add(msg.toolCallId);
+                }
+            }
+
+            if (dedupKey !== null) {
+                seenToolOutputs.add(dedupKey);
+            }
+            if (
+                msg.isError !== true &&
+                typeof msg.toolName === "string" &&
+                path !== null &&
+                isMutationTool(msg.toolName)
+            ) {
+                seenMutatedPaths.add(path);
+            }
+            if (msg.isError !== true && operationKey !== null) {
+                seenSuccessfulOperations.add(operationKey);
+            }
+            continue;
+        }
+
+        if (isBashExecutionMessage(msg)) {
+            const dedupKey = getBashDedupKey(msg);
+            if (
+                isHistorical &&
+                dedupKey !== null &&
+                seenBashOutputs.has(dedupKey)
+            ) {
+                prunedMessageIndexes.add(i);
+            }
+            if (dedupKey !== null) {
+                seenBashOutputs.add(dedupKey);
+            }
+        }
+    }
+
+    return { prunedMessageIndexes, prunedToolCallIds };
+};
+
+const applyHistoricalPruning = <
+    TMessage extends { role: string; content?: unknown; stopReason?: string },
+>(
+    messages: TMessage[],
+    pruningPlan: HistoricalPruningPlan,
+): TMessage[] => {
+    if (
+        pruningPlan.prunedMessageIndexes.size === 0 &&
+        pruningPlan.prunedToolCallIds.size === 0
+    ) {
+        return messages;
+    }
+
+    const nextMessages: TMessage[] = [];
+
+    for (let i = 0; i < messages.length; i++) {
+        if (pruningPlan.prunedMessageIndexes.has(i)) {
+            continue;
+        }
+
+        const msg = messages[i] as {
+            role: string;
+            content?: Array<{ type?: string; id?: string }>;
+            stopReason?: string;
+        };
+        if (msg.role !== "assistant" || !Array.isArray(msg.content)) {
+            nextMessages.push(messages[i]);
+            continue;
+        }
+
+        const filteredContent = msg.content.filter(
+            (block) =>
+                block?.type !== "toolCall" ||
+                typeof block.id !== "string" ||
+                !pruningPlan.prunedToolCallIds.has(block.id),
+        );
+
+        if (filteredContent.length === msg.content.length) {
+            nextMessages.push(messages[i]);
+            continue;
+        }
+
+        if (filteredContent.length === 0) {
+            continue;
+        }
+
+        const hasRemainingToolCalls = filteredContent.some(
+            (block) => block?.type === "toolCall",
+        );
+
+        nextMessages.push({
+            ...messages[i],
+            content: filteredContent,
+            stopReason:
+                msg.stopReason === "toolUse" && !hasRemainingToolCalls
+                    ? "stop"
+                    : msg.stopReason,
+        } as TMessage);
+    }
+
+    return nextMessages;
+};
+
 const getCompactionModel = async (
     ctx: ExtensionContext,
     request: CompactionRequest,
@@ -467,23 +797,40 @@ export default function (pi: ExtensionAPI) {
         });
     });
 
-    // Aggressive live context truncation for historical turns
+    // Aggressive live context pruning/truncation for historical turns
     pi.on("context", async (event, _) => {
-        const truncationBoundaryIndex = findTruncationBoundary(
+        const initialBoundaryIndex = findTruncationBoundary(
             event.messages,
             HISTORICAL_TURNS_TO_KEEP,
         );
 
-        if (truncationBoundaryIndex <= 0) {
-            return { messages: event.messages };
+        let messages = event.messages;
+        if (initialBoundaryIndex > 0) {
+            const pruningPlan = computeHistoricalPruningPlan(
+                event.messages,
+                initialBoundaryIndex,
+            );
+            messages = applyHistoricalPruning(event.messages, pruningPlan);
         }
 
-        const messages = [...event.messages];
+        const truncationBoundaryIndex = findTruncationBoundary(
+            messages,
+            HISTORICAL_TURNS_TO_KEEP,
+        );
+        if (truncationBoundaryIndex <= 0) {
+            return { messages };
+        }
+
+        const truncatedMessages = [...messages] as typeof messages;
 
         for (let i = 0; i < truncationBoundaryIndex; i++) {
-            const msg = messages[i];
+            const msg = truncatedMessages[i] as {
+                role: string;
+                content?: Array<{ type?: string; text?: string }>;
+                output?: string;
+            };
 
-            if (msg.role === "toolResult") {
+            if (msg.role === "toolResult" && Array.isArray(msg.content)) {
                 const toolResult = { ...msg, content: [...msg.content] };
                 let modified = false;
 
@@ -491,6 +838,7 @@ export default function (pi: ExtensionAPI) {
                     const block = toolResult.content[j];
                     if (
                         block.type === "text" &&
+                        typeof block.text === "string" &&
                         block.text.length > HISTORY_TRUNCATION_LIMIT
                     ) {
                         toolResult.content[j] = {
@@ -505,24 +853,24 @@ export default function (pi: ExtensionAPI) {
                 }
 
                 if (modified) {
-                    messages[i] = toolResult;
+                    truncatedMessages[i] =
+                        toolResult as (typeof truncatedMessages)[number];
                 }
-            } else if (msg.role === "bashExecution") {
-                if (
-                    msg.output &&
-                    msg.output.length > HISTORY_TRUNCATION_LIMIT
-                ) {
-                    messages[i] = {
-                        ...msg,
-                        output: truncateHistoricalText(
-                            msg.output,
-                            HISTORY_TRUNCATION_LIMIT,
-                        ),
-                    };
-                }
+            } else if (
+                msg.role === "bashExecution" &&
+                typeof msg.output === "string" &&
+                msg.output.length > HISTORY_TRUNCATION_LIMIT
+            ) {
+                truncatedMessages[i] = {
+                    ...msg,
+                    output: truncateHistoricalText(
+                        msg.output,
+                        HISTORY_TRUNCATION_LIMIT,
+                    ),
+                } as (typeof truncatedMessages)[number];
             }
         }
 
-        return { messages };
+        return { messages: truncatedMessages };
     });
 }
