@@ -2,7 +2,6 @@
 
 To load these into Pi, put them in `~/.pi/agent/extensions/`.
 
-
 **dynamic-truncation** keeps long sessions cheaper and faster by compacting old context and aggressively shrinking stale tool output. It also prunes repeated historical outputs, superseded file mutations, and resolved old errors before the next model call. A lot of harnesses can summarize history, but this one is better for coding work because it specifically preserves the things that matter for continuing implementation: changed files, commands, outputs, errors, and decisions, while trimming the giant old read/bash payloads that usually waste context.
 
 **questionnaire** gives Pi a structured way to ask for clarification with fixed choices, optional notes, and follow-up questions. Many agents can ask questions in plain chat, but this is better because it creates a clean UI flow for real decision points instead of producing another messy conversational branch that the model later has to reinterpret.
@@ -12,6 +11,10 @@ To load these into Pi, put them in `~/.pi/agent/extensions/`.
 **permission-guard** adds a confirmation step before risky bash commands. Most harnesses talk about being careful with shell access, but this is better because it sits directly on the actual `bash` tool path and forces an explicit decision at the moment destructive commands are about to run, especially for deletes, installs, permission changes, and git operations.
 
 **footer** replaces the default footer with a denser live status bar showing runtime, token usage, cache-read share, cost, context pressure, and extension status. Plenty of tools show token counts, but this is better for active coding because it surfaces the operational signals you actually care about while steering a long session, especially context pressure and cache-read behavior.
+
+**codemap** adds a deterministic `codemap` tool for repo and module analysis. Instead of relying only on freeform inspection, it runs a standardized stats pass that summarizes file layout, AST-level symbols, and import/export relationships, then truncates safely while preserving the full report in a temp file when needed.
+
+**formatter-hook** runs `hooks/formatter.sh` when Pi shuts down inside a repo that contains that script. This is better than baking formatting logic into the extension because the shell script stays the single source of truth and the hook stays repo-local instead of affecting unrelated projects.
 
 **todolist** gives Pi a lightweight session-backed todo list for short-lived task tracking. The reason it is better than a generic checklist is that the state lives with the Pi session and reconstructs from branch history, so it stays consistent when you resume, compact, or move around the conversation tree instead of drifting out of sync.
 
