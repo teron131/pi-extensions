@@ -1,10 +1,9 @@
 # Pi extensions
 
-To load these into Pi, copy the single-file extensions into `~/.pi/agent/extensions/`, and copy the directory extensions as folders into `~/.pi/agent/extensions/` too. The simple rule is: put `dynamic-truncation`, `questionnaire`, `path-guard`, `permission-guard`, `custom-footer`, and `todolist` into `~/.pi/agent/extensions/` as `.ts` files, and put `plan-mode` and `subagent` into `~/.pi/agent/extensions/` as folders that contain `index.ts`. If you want them project-local instead of global, use the same layout under `.pi/extensions/` in the repo.
+To load these into Pi, put them in `~/.pi/agent/extensions/`.
 
-What makes these better than the generic versions many harnesses already have is that they are shaped around actual coding-agent behavior in Pi: session history, branch-aware state, tool interception, TUI rendering, and deliberate safety boundaries. They are not just feature checkboxes. They try to make the model behave better in real long-running coding sessions.
 
-**dynamic-truncation** keeps long sessions cheaper and faster by compacting old context and aggressively shrinking stale tool output. A lot of harnesses can summarize history, but this one is better for coding work because it specifically preserves the things that matter for continuing implementation: changed files, commands, outputs, errors, and decisions, while trimming the giant old read/bash payloads that usually waste context.
+**dynamic-truncation** keeps long sessions cheaper and faster by compacting old context and aggressively shrinking stale tool output. It also prunes repeated historical outputs, superseded file mutations, and resolved old errors before the next model call. A lot of harnesses can summarize history, but this one is better for coding work because it specifically preserves the things that matter for continuing implementation: changed files, commands, outputs, errors, and decisions, while trimming the giant old read/bash payloads that usually waste context.
 
 **questionnaire** gives Pi a structured way to ask for clarification with fixed choices, optional notes, and follow-up questions. Many agents can ask questions in plain chat, but this is better because it creates a clean UI flow for real decision points instead of producing another messy conversational branch that the model later has to reinterpret.
 
