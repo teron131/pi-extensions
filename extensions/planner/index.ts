@@ -1,5 +1,5 @@
 /**
- * Plan Mode Extension
+ * Planner Extension
  *
  * Read-only exploration mode for safe code analysis.
  * When enabled, only read-only tools are available.
