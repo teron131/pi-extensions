@@ -100,8 +100,8 @@ export function getFooterMetricParts(options: FooterMetricsOptions): string[] {
     const cacheRead = options.cacheRead || 0;
     const totalInput = (options.input || 0) + cacheRead;
     const output = options.output || 0;
-    parts.push(`⬆️ ${formatTokens(totalInput)}`);
-    parts.push(`⬇️ ${formatTokens(output)}`);
+    parts.push(`⬆️  ${formatTokens(totalInput)}`);
+    parts.push(`⬇️  ${formatTokens(output)}`);
 
     if (cacheRead || options.showZeroCache) {
         const cacheShare = formatPercent(cacheRead, totalInput) || "0%";
