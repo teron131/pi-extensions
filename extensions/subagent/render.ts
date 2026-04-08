@@ -11,6 +11,7 @@ import {
     type ThemeColor,
 } from "@mariozechner/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
+import { FooterBlock } from "../footer.js";
 import type { AgentConfig, AgentScope } from "./agents.js";
 import {
     aggregateUsage,
@@ -604,12 +605,49 @@ export function renderSubagentResult(
         if (summary.pendingCount > 0) return theme.fg("dim", "○");
         return theme.fg("success", "✓");
     };
-    const getTotalUsageNote = (results: SingleResult[]): string | null => {
-        const usage = formatUsageStats(
+    const getTotalUsageText = (results: SingleResult[]): string => {
+        return formatUsageStats(
             aggregateUsage(results),
             getResultsModelLabel(results) || undefined,
         );
-        return usage ? renderChecklistNote(usage) : null;
+    };
+    const getSingleUsageText = (stage: SingleResult): string => {
+        return formatUsageStats(stage.usage, stage.model);
+    };
+    const getFooterStatusText = (
+        state: ChecklistState,
+        completedLabel = "completed",
+    ): string => {
+        switch (state) {
+            case "running":
+                return "⏳ running";
+            case "failed":
+                return "✗ failed";
+            case "done":
+                return `✓ ${completedLabel}`;
+            default:
+                return "○ pending";
+        }
+    };
+    const addFooterSummary = (
+        container: Container,
+        options: {
+            title: string;
+            status: string;
+            usage: string;
+            hint?: string;
+        },
+    ) => {
+        if (!options.usage) return;
+        container.addChild(new Spacer(1));
+        container.addChild(
+            new FooterBlock(() => ({
+                topLeft: theme.fg("dim", options.title),
+                topRight: theme.fg("dim", options.status),
+                bottomLeft: theme.fg("dim", options.usage),
+                bottomRight: options.hint ? theme.fg("dim", options.hint) : "",
+            })),
+        );
     };
     const addExpandedStageRow = (
         container: Container,
@@ -747,7 +785,7 @@ export function renderSubagentResult(
             resultStage.task,
             resultStage,
         );
-        const usage = formatUsageStats(resultStage.usage, resultStage.model);
+        const usage = getSingleUsageText(resultStage);
         const statusLabel =
             isResultRunning(resultStage) || isPartial
                 ? "running"
@@ -768,6 +806,11 @@ export function renderSubagentResult(
             );
             addWarningsToContainer(container);
             addExpandedStageRow(container, row, 220);
+            addFooterSummary(container, {
+                title: `subagent ${resultStage.agent}`,
+                status: getFooterStatusText(row.state),
+                usage,
+            });
             return container;
         }
 
@@ -790,11 +833,22 @@ export function renderSubagentResult(
             row.displayItems,
             row.finalOutput,
         )}`;
-        if (usage) text += `\n${renderChecklistNote(usage)}`;
-        if (row.displayItems.length > COLLAPSED_ITEM_COUNT) {
+        if (!usage && row.displayItems.length > COLLAPSED_ITEM_COUNT) {
             text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
         }
-        return new Text(text, 0, 0);
+
+        const container = new Container();
+        container.addChild(new Text(text, 0, 0));
+        addFooterSummary(container, {
+            title: `subagent ${resultStage.agent}`,
+            status: getFooterStatusText(row.state),
+            usage,
+            hint:
+                row.displayItems.length > COLLAPSED_ITEM_COUNT
+                    ? "Ctrl+O to expand"
+                    : undefined,
+        });
+        return container;
     }
 
     if (details.mode === "chain") {
@@ -814,7 +868,7 @@ export function renderSubagentResult(
             rows.length,
             `step ${summary.runningRow?.position ?? "?"} running`,
         );
-        const totalUsageNote = getTotalUsageNote(details.results);
+        const totalUsage = getTotalUsageText(details.results);
 
         if (expanded) {
             const container = new Container();
@@ -829,10 +883,17 @@ export function renderSubagentResult(
             for (const row of rows) {
                 addExpandedStageRow(container, row, 220);
             }
-            if (totalUsageNote) {
-                container.addChild(new Spacer(1));
-                container.addChild(new Text(totalUsageNote, 0, 0));
-            }
+            addFooterSummary(container, {
+                title: "subagent chain",
+                status: getFooterStatusText(
+                    summary.runningCount > 0
+                        ? "running"
+                        : summary.failedCount > 0
+                          ? "failed"
+                          : "done",
+                ),
+                usage: totalUsage,
+            });
             return container;
         }
 
@@ -841,11 +902,24 @@ export function renderSubagentResult(
             text += `\n${warningsText.join("\n")}`;
         }
         text += `\n${renderCollapsedWorkflowRows(rows, 120)}`;
-        if (totalUsageNote) {
-            text += `\n${totalUsageNote}`;
+        if (!totalUsage) {
+            text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
         }
-        text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
-        return new Text(text, 0, 0);
+        const container = new Container();
+        container.addChild(new Text(text, 0, 0));
+        addFooterSummary(container, {
+            title: "subagent chain",
+            status: getFooterStatusText(
+                summary.runningCount > 0
+                    ? "running"
+                    : summary.failedCount > 0
+                      ? "failed"
+                      : "done",
+            ),
+            usage: totalUsage,
+            hint: "Ctrl+O to expand",
+        });
+        return container;
     }
 
     if (details.mode === "parallel") {
@@ -859,10 +933,10 @@ export function renderSubagentResult(
             rows.length,
             `${summary.runningCount} running`,
         );
-        const totalUsageNote =
+        const totalUsage =
             summary.runningCount === 0
-                ? getTotalUsageNote(details.results)
-                : null;
+                ? getTotalUsageText(details.results)
+                : "";
 
         if (expanded) {
             const container = new Container();
@@ -877,10 +951,17 @@ export function renderSubagentResult(
             for (const row of rows) {
                 addExpandedStageRow(container, row, 220);
             }
-            if (totalUsageNote) {
-                container.addChild(new Spacer(1));
-                container.addChild(new Text(totalUsageNote, 0, 0));
-            }
+            addFooterSummary(container, {
+                title: "subagent parallel",
+                status: getFooterStatusText(
+                    summary.runningCount > 0
+                        ? "running"
+                        : summary.failedCount > 0
+                          ? "failed"
+                          : "done",
+                ),
+                usage: totalUsage,
+            });
             return container;
         }
 
@@ -889,11 +970,24 @@ export function renderSubagentResult(
             text += `\n${warningsText.join("\n")}`;
         }
         text += `\n${renderCollapsedWorkflowRows(rows, 120)}`;
-        if (totalUsageNote) {
-            text += `\n${totalUsageNote}`;
+        if (!totalUsage) {
+            text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
         }
-        text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
-        return new Text(text, 0, 0);
+        const container = new Container();
+        container.addChild(new Text(text, 0, 0));
+        addFooterSummary(container, {
+            title: "subagent parallel",
+            status: getFooterStatusText(
+                summary.runningCount > 0
+                    ? "running"
+                    : summary.failedCount > 0
+                      ? "failed"
+                      : "done",
+            ),
+            usage: totalUsage,
+            hint: "Ctrl+O to expand",
+        });
+        return container;
     }
 
     const text = result.content[0];

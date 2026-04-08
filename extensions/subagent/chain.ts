@@ -3,6 +3,7 @@
  */
 
 import type { Message } from "@mariozechner/pi-ai";
+import { formatFooterMetrics } from "../footer.js";
 import type { AgentConfig } from "./agents.js";
 
 const MAX_CHAIN_HANDOFF_CHARS = 6000;
@@ -63,20 +64,6 @@ export interface PlannedStage {
     step?: number;
 }
 
-function formatTokens(count: number): string {
-    if (count < 1000) return count.toString();
-    if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
-    if (count < 1000000) return `${Math.round(count / 1000)}k`;
-    return `${(count / 1000000).toFixed(1)}M`;
-}
-
-function formatPercent(part: number, total: number): string | null {
-    if (total <= 0) return null;
-    const pct = (part / total) * 100;
-    if (pct >= 99.5 && pct < 100) return `${pct.toFixed(1)}%`;
-    return `${Math.round(pct)}%`;
-}
-
 export function formatUsageStats(
     usage: {
         input: number;
@@ -89,34 +76,15 @@ export function formatUsageStats(
     },
     model?: string,
 ): string {
-    const parts: string[] = [];
-
-    if (model) {
-        const match = model.match(/^\(([^)]+)\)\s*(.+)$/);
-        if (match) {
-            parts.push(`🤖${match[2]} [${match[1]}]`);
-        } else {
-            parts.push(`🤖${model}`);
-        }
-    }
-
-    const totalInput = (usage.input || 0) + (usage.cacheRead || 0);
-    if (totalInput > 0) parts.push(`⬆️ ${formatTokens(totalInput)}`);
-    if (usage.output) parts.push(`⬇️ ${formatTokens(usage.output)}`);
-    
-    if (usage.cacheRead) {
-        const cacheShare = formatPercent(usage.cacheRead, totalInput);
-        if (cacheShare) parts.push(`💾${cacheShare}`);
-    }
-    
-    if (usage.contextTokens && usage.contextTokens > 0) {
-        parts.push(`📐${formatTokens(usage.contextTokens)}`);
-    }
-    
-    if (usage.cost) parts.push(`💸$${usage.cost.toFixed(3)}`);
-    if (usage.turns) parts.push(`💬${usage.turns}`);
-
-    return parts.join("  ");
+    return formatFooterMetrics({
+        input: usage.input,
+        output: usage.output,
+        cacheRead: usage.cacheRead,
+        cost: usage.cost,
+        contextTokens: usage.contextTokens,
+        count: usage.turns,
+        model,
+    });
 }
 
 export function isBlankTask(task: DelegatedTask): boolean {

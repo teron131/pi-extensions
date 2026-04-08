@@ -11,7 +11,7 @@ To load these into Pi, put them in `~/.pi/agent/extensions/`.
 
 **permission-guard** adds a confirmation step before risky bash commands. Most harnesses talk about being careful with shell access, but this is better because it sits directly on the actual `bash` tool path and forces an explicit decision at the moment destructive commands are about to run, especially for deletes, installs, permission changes, and git operations.
 
-**custom-footer** replaces the default footer with a denser live status bar showing runtime, token usage, cache-read share, cost, context pressure, and extension status. Plenty of tools show token counts, but this is better for active coding because it surfaces the operational signals you actually care about while steering a long session, especially context pressure and cache-read behavior.
+**footer** replaces the default footer with a denser live status bar showing runtime, token usage, cache-read share, cost, context pressure, and extension status. Plenty of tools show token counts, but this is better for active coding because it surfaces the operational signals you actually care about while steering a long session, especially context pressure and cache-read behavior.
 
 **todolist** gives Pi a lightweight session-backed todo list for short-lived task tracking. The reason it is better than a generic checklist is that the state lives with the Pi session and reconstructs from branch history, so it stays consistent when you resume, compact, or move around the conversation tree instead of drifting out of sync.
 

@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { withFileMutationQueue } from "@mariozechner/pi-coding-agent";
+import { subagentGlobalUsage } from "../footer.js";
 import type { AgentConfig } from "./agents.js";
 import { formatAgentAvailability, resolveAgent } from "./agents.js";
 import {
@@ -99,14 +100,6 @@ function getPiInvocation(args: string[]): { command: string; args: string[] } {
 
     return { command: "pi", args };
 }
-
-export const subagentGlobalUsage = {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    cost: 0,
-};
 
 export async function runSingleAgent(
     defaultCwd: string,
@@ -218,19 +211,23 @@ export async function runSingleAgent(
                         if (usage) {
                             currentResult.usage.input += usage.input || 0;
                             subagentGlobalUsage.input += usage.input || 0;
-                            
+
                             currentResult.usage.output += usage.output || 0;
                             subagentGlobalUsage.output += usage.output || 0;
-                            
-                            currentResult.usage.cacheRead += usage.cacheRead || 0;
-                            subagentGlobalUsage.cacheRead += usage.cacheRead || 0;
-                            
-                            currentResult.usage.cacheWrite += usage.cacheWrite || 0;
-                            subagentGlobalUsage.cacheWrite += usage.cacheWrite || 0;
-                            
+
+                            currentResult.usage.cacheRead +=
+                                usage.cacheRead || 0;
+                            subagentGlobalUsage.cacheRead +=
+                                usage.cacheRead || 0;
+
+                            currentResult.usage.cacheWrite +=
+                                usage.cacheWrite || 0;
+                            subagentGlobalUsage.cacheWrite +=
+                                usage.cacheWrite || 0;
+
                             currentResult.usage.cost += usage.cost?.total || 0;
                             subagentGlobalUsage.cost += usage.cost?.total || 0;
-                            
+
                             currentResult.usage.contextTokens = Math.max(
                                 currentResult.usage.contextTokens,
                                 usage.totalTokens || 0,

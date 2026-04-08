@@ -1,5 +1,5 @@
 /**
- * Custom Footer Extension
+ * Footer Extension
  *
  * Replaces the built-in footer with a compact session stats view that keeps cache-read visible.
  */
@@ -10,7 +10,6 @@ import type {
     ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
-import { subagentGlobalUsage } from "./subagent/runner.js";
 
 type MessagePayload = {
     role: string;
@@ -27,18 +26,158 @@ type SessionEntryPayload = {
     thinkingLevel?: string;
 };
 
-function formatTokens(count: number): string {
+export interface FooterMetricsOptions {
+    input: number;
+    output: number;
+    cacheRead?: number;
+    cost?: number;
+    contextTokens?: number;
+    contextText?: string;
+    count?: number | string;
+    model?: string;
+}
+
+export interface SharedUsageTotals {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    cost: number;
+}
+
+export interface FooterBlockData {
+    topLeft: string;
+    topRight?: string;
+    bottomLeft: string;
+    bottomRight?: string;
+    topGap?: number;
+    bottomGap?: number;
+}
+
+export function createSharedUsageTotals(): SharedUsageTotals {
+    return {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        cost: 0,
+    };
+}
+
+export const subagentGlobalUsage = createSharedUsageTotals();
+
+export function formatTokens(count: number): string {
     if (count < 1000) return count.toString();
     if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
     if (count < 1000000) return `${Math.round(count / 1000)}k`;
     return `${(count / 1000000).toFixed(1)}M`;
 }
 
-function formatPercent(part: number, total: number): string | null {
+export function formatPercent(part: number, total: number): string | null {
     if (total <= 0) return null;
     const pct = (part / total) * 100;
     if (pct >= 99.5 && pct < 100) return `${pct.toFixed(1)}%`;
     return `${Math.round(pct)}%`;
+}
+
+export function formatFooterModel(model?: string): string | null {
+    if (!model) return null;
+    const match = model.match(/^\(([^)]+)\)\s*(.+)$/);
+    if (match) {
+        return `🤖${match[2]} [${match[1]}]`;
+    }
+    return `🤖${model}`;
+}
+
+export function getFooterMetricParts(options: FooterMetricsOptions): string[] {
+    const parts: string[] = [];
+    const modelLabel = formatFooterModel(options.model);
+
+    if (modelLabel) parts.push(modelLabel);
+
+    const cacheRead = options.cacheRead || 0;
+    const totalInput = (options.input || 0) + cacheRead;
+    const output = options.output || 0;
+    parts.push(`⬆️ ${formatTokens(totalInput)}`);
+    parts.push(`⬇️ ${formatTokens(output)}`);
+
+    if (cacheRead) {
+        const cacheShare = formatPercent(cacheRead, totalInput);
+        if (cacheShare) parts.push(`💾${cacheShare}`);
+    }
+
+    const contextText =
+        options.contextText ??
+        (options.contextTokens && options.contextTokens > 0
+            ? formatTokens(options.contextTokens)
+            : null);
+    if (contextText) parts.push(`📐${contextText}`);
+
+    const cost = options.cost ?? 0;
+    parts.push(`💸$${cost.toFixed(3)}`);
+    if (options.count !== undefined && `${options.count}`.length > 0) {
+        parts.push(`💬${options.count}`);
+    }
+
+    return parts;
+}
+
+export function formatFooterMetrics(options: FooterMetricsOptions): string {
+    return getFooterMetricParts(options).join("  ");
+}
+
+function layoutFooterLine(
+    width: number,
+    left: string,
+    right = "",
+    minGap = 2,
+): string {
+    const leftWidth = visibleWidth(left);
+    const rightWidth = visibleWidth(right);
+    if (!right || rightWidth === 0) {
+        return leftWidth > width ? truncateToWidth(left, width, "...") : left;
+    }
+
+    if (leftWidth + minGap + rightWidth <= width) {
+        const padding = " ".repeat(width - leftWidth - rightWidth);
+        return `${left}${padding}${right}`;
+    }
+
+    const available = width - rightWidth - minGap;
+    if (available > 0) {
+        const truncatedLeft = truncateToWidth(left, available, "");
+        const padding = " ".repeat(
+            Math.max(0, width - visibleWidth(truncatedLeft) - rightWidth),
+        );
+        return `${truncatedLeft}${padding}${right}`;
+    }
+
+    return truncateToWidth(right, width, "...");
+}
+
+export function renderFooterBlockLines(
+    width: number,
+    data: FooterBlockData,
+): string[] {
+    return [
+        layoutFooterLine(width, data.topLeft, data.topRight, data.topGap ?? 2),
+        layoutFooterLine(
+            width,
+            data.bottomLeft,
+            data.bottomRight,
+            data.bottomGap ?? 2,
+        ),
+    ];
+}
+
+export class FooterBlock {
+    constructor(private readonly getData: () => FooterBlockData) {}
+
+    render(width: number): string[] {
+        return renderFooterBlockLines(width, this.getData());
+    }
+
+    invalidate(): void {}
 }
 
 function formatRunTime(ms: number): string {
@@ -111,17 +250,14 @@ export default function (pi: ExtensionAPI) {
                         ctx.model?.contextWindow ??
                         0;
                     const contextPercent = contextUsage?.percent;
-                    
-                    const combinedInput = sessionInput + subagentGlobalUsage.input;
-                    const combinedOutput = sessionOutput + subagentGlobalUsage.output;
-                    const combinedCacheRead = sessionCacheRead + subagentGlobalUsage.cacheRead;
+
+                    const combinedInput =
+                        sessionInput + subagentGlobalUsage.input;
+                    const combinedOutput =
+                        sessionOutput + subagentGlobalUsage.output;
+                    const combinedCacheRead =
+                        sessionCacheRead + subagentGlobalUsage.cacheRead;
                     const combinedCost = sessionCost + subagentGlobalUsage.cost;
-                    
-                    const totalInput = combinedInput + combinedCacheRead;
-                    const cacheShare = formatPercent(
-                        combinedCacheRead,
-                        totalInput,
-                    );
 
                     // --- TOP LINE (Model & Session) ---
                     let modelSide = ctx.model
@@ -220,86 +356,37 @@ export default function (pi: ExtensionAPI) {
 
                     isRunningState = isRunning;
 
-                    if (currentRunTimeMs > 0) {
-                        const timeStr = formatRunTime(currentRunTimeMs);
-                        sessionSide += sessionSide
-                            ? ` ⏳${timeStr}`
-                            : `⏳${timeStr}`;
-                    }
-
-                    // Layout Top Line
-                    let topLine: string;
-                    const modelWidth = visibleWidth(modelSide);
-                    const sessionWidth = visibleWidth(sessionSide);
-                    const minPaddingTop = 2;
-                    if (modelWidth + minPaddingTop + sessionWidth <= width) {
-                        const padding = " ".repeat(
-                            width - modelWidth - sessionWidth,
-                        );
-                        topLine = `${theme.fg("dim", modelSide)}${padding}${theme.fg("dim", sessionSide)}`;
-                    } else {
-                        const available = width - modelWidth - minPaddingTop;
-                        if (available > 0) {
-                            const truncatedSession = truncateToWidth(
-                                sessionSide,
-                                available,
-                                "",
-                            );
-                            const padding = " ".repeat(
-                                Math.max(
-                                    0,
-                                    width -
-                                        modelWidth -
-                                        visibleWidth(truncatedSession),
-                                ),
-                            );
-                            topLine = `${theme.fg("dim", modelSide)}${padding}${theme.fg("dim", truncatedSession)}`;
-                        } else {
-                            topLine = truncateToWidth(
-                                theme.fg("dim", modelSide),
-                                width,
-                                theme.fg("dim", "..."),
-                            );
-                        }
-                    }
+                    const timeStr = formatRunTime(currentRunTimeMs);
+                    sessionSide += sessionSide
+                        ? ` ⏳${timeStr}`
+                        : `⏳${timeStr}`;
 
                     // --- BOTTOM LINE (Stats & Statuses) ---
-                    const statsParts: string[] = [];
-
-                    statsParts.push(
-                        theme.fg("dim", `⬆️ ${formatTokens(totalInput)}`),
-                    );
-                    statsParts.push(
-                        theme.fg("dim", `⬇️ ${formatTokens(combinedOutput)}`),
-                    );
-
-                    // Cache Write is intentionally hidden as most models don't use it
-                    // const cacheWriteDisplay = ` W${formatTokens(sessionCacheWrite)}`;
-                    if (cacheShare)
-                        statsParts.push(theme.fg("dim", `💾${cacheShare}`));
-
                     const tokensDisplay =
                         contextUsage?.tokens == null
                             ? "?"
                             : formatTokens(contextUsage.tokens);
-                    const contextTokensDisplay = `📐${tokensDisplay}/${formatTokens(contextWindow)}`;
+                    const contextTokensDisplay = `${tokensDisplay}/${formatTokens(contextWindow)}`;
                     const contextColor =
                         contextPercent != null && contextPercent > 90
                             ? "error"
                             : contextPercent != null && contextPercent > 70
                               ? "warning"
                               : "dim";
-                    statsParts.push(
-                        theme.fg(contextColor, contextTokensDisplay),
+                    const statsParts = getFooterMetricParts({
+                        input: combinedInput,
+                        output: combinedOutput,
+                        cacheRead: combinedCacheRead,
+                        cost: combinedCost,
+                        contextText: contextTokensDisplay,
+                        count: messageCount,
+                    }).map((part) =>
+                        part.startsWith("📐")
+                            ? theme.fg(contextColor, part)
+                            : theme.fg("dim", part),
                     );
 
-                    statsParts.push(
-                        theme.fg("dim", `💸$${combinedCost.toFixed(3)}`),
-                    );
-
-                    statsParts.push(theme.fg("dim", `💬${messageCount}`));
-
-                    let statsLeft = statsParts.join(theme.fg("dim", "  "));
+                    const statsLeft = statsParts.join(theme.fg("dim", "  "));
 
                     // Extension statuses on the right
                     const extensionStatuses = footerData.getExtensionStatuses();
@@ -316,43 +403,16 @@ export default function (pi: ExtensionAPI) {
                             .join(" ");
                     }
 
-                    const minPaddingBottom = 2;
-                    if (visibleWidth(statsLeft) > width) {
-                        statsLeft = truncateToWidth(statsLeft, width, "...");
-                    }
-
-                    const statsWidth = visibleWidth(statsLeft);
-                    const statusWidth = visibleWidth(statusSide);
-                    let bottomLine: string;
-
-                    if (statsWidth + minPaddingBottom + statusWidth <= width) {
-                        const padding = " ".repeat(
-                            width - statsWidth - statusWidth,
-                        );
-                        bottomLine = `${statsLeft}${padding}${theme.fg("dim", statusSide)}`;
-                    } else {
-                        const available = width - statsWidth - minPaddingBottom;
-                        if (available > 0) {
-                            const truncatedStatus = truncateToWidth(
-                                statusSide,
-                                available,
-                                "",
-                            );
-                            const padding = " ".repeat(
-                                Math.max(
-                                    0,
-                                    width -
-                                        statsWidth -
-                                        visibleWidth(truncatedStatus),
-                                ),
-                            );
-                            bottomLine = `${statsLeft}${padding}${theme.fg("dim", truncatedStatus)}`;
-                        } else {
-                            bottomLine = statsLeft;
-                        }
-                    }
-
-                    return [topLine, bottomLine];
+                    return renderFooterBlockLines(width, {
+                        topLeft: theme.fg("dim", modelSide),
+                        topRight: sessionSide
+                            ? theme.fg("dim", sessionSide)
+                            : "",
+                        bottomLeft: statsLeft,
+                        bottomRight: statusSide
+                            ? theme.fg("dim", statusSide)
+                            : "",
+                    });
                 },
             };
         });
