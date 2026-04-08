@@ -10,6 +10,7 @@ import type {
     ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { subagentGlobalUsage } from "./subagent/runner.js";
 
 type MessagePayload = {
     role: string;
@@ -110,9 +111,15 @@ export default function (pi: ExtensionAPI) {
                         ctx.model?.contextWindow ??
                         0;
                     const contextPercent = contextUsage?.percent;
-                    const totalInput = sessionInput + sessionCacheRead;
+                    
+                    const combinedInput = sessionInput + subagentGlobalUsage.input;
+                    const combinedOutput = sessionOutput + subagentGlobalUsage.output;
+                    const combinedCacheRead = sessionCacheRead + subagentGlobalUsage.cacheRead;
+                    const combinedCost = sessionCost + subagentGlobalUsage.cost;
+                    
+                    const totalInput = combinedInput + combinedCacheRead;
                     const cacheShare = formatPercent(
-                        sessionCacheRead,
+                        combinedCacheRead,
                         totalInput,
                     );
 
@@ -263,7 +270,7 @@ export default function (pi: ExtensionAPI) {
                         theme.fg("dim", `⬆️ ${formatTokens(totalInput)}`),
                     );
                     statsParts.push(
-                        theme.fg("dim", `⬇️ ${formatTokens(sessionOutput)}`),
+                        theme.fg("dim", `⬇️ ${formatTokens(combinedOutput)}`),
                     );
 
                     // Cache Write is intentionally hidden as most models don't use it
@@ -287,7 +294,7 @@ export default function (pi: ExtensionAPI) {
                     );
 
                     statsParts.push(
-                        theme.fg("dim", `💸$${sessionCost.toFixed(3)}`),
+                        theme.fg("dim", `💸$${combinedCost.toFixed(3)}`),
                     );
 
                     statsParts.push(theme.fg("dim", `💬${messageCount}`));
