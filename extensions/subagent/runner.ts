@@ -132,7 +132,10 @@ export async function runSingleAgent(
     if (agent.provider) args.push("--provider", agent.provider);
     if (agent.model) args.push("--model", agent.model);
     if (agent.tools && agent.tools.length > 0) {
-        args.push("--tools", agent.tools.join(","));
+        const filteredTools = agent.tools.filter((t) => t !== "subagent");
+        if (filteredTools.length > 0) {
+            args.push("--tools", filteredTools.join(","));
+        }
     }
 
     let tmpPromptDir: string | null = null;
@@ -177,6 +180,10 @@ export async function runSingleAgent(
                 cwd: effectiveCwd,
                 shell: false,
                 stdio: ["ignore", "pipe", "pipe"],
+                env: {
+                    ...process.env,
+                    PI_IS_SUBAGENT: "1",
+                },
             });
             let buffer = "";
             let sawMalformedJson = false;

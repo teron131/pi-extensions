@@ -192,6 +192,10 @@ function createEmptyResult(agent: string, task: DelegatedTask): SingleResult {
 export default function (pi: ExtensionAPI) {
     registerSubagentMessageRenderer(pi);
 
+    if (process.env.PI_IS_SUBAGENT === "1") {
+        return;
+    }
+
     pi.registerTool({
         name: "subagent",
         label: "Subagent",

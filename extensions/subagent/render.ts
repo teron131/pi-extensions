@@ -124,9 +124,14 @@ function formatToolCall(
         }
         case "edit": {
             const rawPath = (args.file_path || args.path || "...") as string;
+            const edits = Array.isArray(args.edits) ? args.edits : undefined;
+            const countStr = edits?.length
+                ? ` (${edits.length} block${edits.length > 1 ? "s" : ""})`
+                : "";
             return (
                 themeFg("muted", "edit ") +
-                themeFg("accent", shortenHomePath(rawPath))
+                themeFg("accent", shortenHomePath(rawPath)) +
+                themeFg("dim", countStr)
             );
         }
         case "ls": {
@@ -153,6 +158,30 @@ function formatToolCall(
                 themeFg("accent", `/${pattern}/`) +
                 themeFg("dim", ` in ${shortenHomePath(rawPath)}`)
             );
+        }
+        case "subagent": {
+            const action = (args.action as string) || "single";
+            if (action === "list") {
+                return themeFg("toolTitle", "subagent list");
+            }
+            if (action === "chain" && Array.isArray(args.chain)) {
+                return (
+                    themeFg("toolTitle", "subagent chain ") +
+                    themeFg("dim", `(${args.chain.length} steps)`)
+                );
+            }
+            if (action === "parallel" && Array.isArray(args.tasks)) {
+                return (
+                    themeFg("toolTitle", "subagent parallel ") +
+                    themeFg("dim", `(${args.tasks.length} tasks)`)
+                );
+            }
+            const agent = (args.agent as string) || "...";
+            return themeFg("toolTitle", "subagent ") + themeFg("accent", agent);
+        }
+        case "todo": {
+            const action = (args.action as string) || "...";
+            return themeFg("toolTitle", "todo ") + themeFg("accent", action);
         }
         default: {
             const argsStr = JSON.stringify(args);
@@ -328,7 +357,7 @@ function buildFinalDisplayMessage(
     for (const [index, result] of results.entries()) {
         const heading =
             mode === "chain"
-                ? `### Step ${index + 1} — ${result.agent}`
+                ? `### Step ${index + 1} - ${result.agent}`
                 : mode === "parallel"
                   ? `### ${result.agent}`
                   : "### Final output";
@@ -481,8 +510,8 @@ export function renderSubagentResult(
     }): string => {
         const prefix =
             row.position !== undefined
-                ? `  ${theme.fg("dim", `${row.position}.`)} `
-                : "  ";
+                ? `${theme.fg("dim", `${row.position}.`)} `
+                : "";
         const metaText = row.meta ? theme.fg("muted", ` ${row.meta}`) : "";
         return `${prefix}${getChecklistIcon(row.state)} ${getChecklistLabel(row.state, row.label)}${metaText}`;
     };
@@ -490,10 +519,10 @@ export function renderSubagentResult(
         text: string,
         color: "dim" | "muted" | "warning" | "error" = "dim",
     ): string => {
-        return `     ${theme.fg("muted", "↳ ")}${theme.fg(color, text)}`;
+        return theme.fg(color, text);
     };
     const renderChecklistRichNote = (content: string): string => {
-        return `     ${theme.fg("muted", "↳ ")}${content}`;
+        return content;
     };
     const getStagePreviewNote = (
         stage: SingleResult | undefined,
@@ -610,17 +639,16 @@ export function renderSubagentResult(
         options: {
             title: string;
             status: string;
-            usage: string;
+            usage?: string;
             hint?: string;
         },
     ) => {
-        if (!options.usage) return;
         container.addChild(new Spacer(1));
         container.addChild(
             new FooterBlock(() => ({
                 topLeft: theme.fg("dim", options.title),
                 topRight: theme.fg("dim", options.status),
-                bottomLeft: theme.fg("dim", options.usage),
+                bottomLeft: options.usage ? theme.fg("dim", options.usage) : "",
                 bottomRight: options.hint ? theme.fg("dim", options.hint) : "",
             })),
         );
@@ -769,10 +797,6 @@ export function renderSubagentResult(
             const container = new Container();
             addWarningsToContainer(container);
 
-            if (usage) {
-                container.addChild(new Spacer(1));
-                container.addChild(new Text(renderChecklistNote(usage), 0, 0));
-            }
             maybeAddStageOutput(
                 container,
                 resultStage,
