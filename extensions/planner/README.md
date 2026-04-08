@@ -6,6 +6,7 @@ Read-only exploration mode for safe code analysis.
 
 - **Read-only tools**: Restricts available tools to read, bash, grep, find, ls, question
 - **Bash allowlist**: Only read-only bash commands are allowed
+- **Clarification-first planning**: Prompts the agent to ask targeted user questions before drafting a plan when key requirements are missing
 - **Plan extraction**: Extracts numbered steps from `Plan:` sections
 - **Progress tracking**: Widget shows completion status during execution
 - **[DONE:n] markers**: Explicit step completion tracking
@@ -13,13 +14,13 @@ Read-only exploration mode for safe code analysis.
 
 ## Commands
 
-- `/plan` - Toggle plan mode
+- `/plan` - Toggle plan mode (user-activated)
 - `/todos` - Show current plan progress in the shared todo list
 - `Ctrl+Alt+P` - Toggle plan mode (shortcut)
 
 ## Usage
 
-1. Enable plan mode with `/plan` or `--plan` flag
+1. Enable plan mode with `/plan`
 2. Ask the agent to analyze code and create a plan
 3. The agent should output a numbered plan under a `Plan:` header:
 
@@ -39,6 +40,7 @@ Plan:
 ### Plan Mode (Read-Only)
 - Only read-only tools available
 - Bash commands filtered through allowlist
+- Agent asks clarifying questions first when missing requirements would change the plan
 - Agent creates a plan without making changes
 
 ### Execution Mode

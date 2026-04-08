@@ -3,8 +3,8 @@ description: Explorer gathers context, planner creates implementation plan (no i
 ---
 Use the subagent tool with the chain parameter to execute this workflow:
 
-1. First, use the "explorer" agent to find all code relevant to: $@
-2. Then, use the "planner" agent to create an implementation plan for "$@" using the context from the previous step (use {previous} placeholder)
+1. First, use the "explorer" agent to do extensive discovery for: $@
+2. Then, use the "planner" agent to ask clarifying user questions if important gaps remain, and only then create an implementation plan for "$@" using the context from the previous step (use {previous} placeholder)
 
 Use structured briefs for both steps. Prefer the object task form with fields like goal, context, constraints, successCriteria, outputFormat, and toolingHint when possible.
 Prefer MCP-backed tools, structural search, and relevant skills when available in the runtime.

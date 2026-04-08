@@ -26,7 +26,7 @@ subagent/
 ├── agents.ts            # Agent discovery logic
 ├── agents/              # Sample agent definitions
 │   ├── explorer.md      # Fast recon, returns compressed context
-│   ├── planner.md       # Creates implementation plans
+│   ├── planner.md       # Automatically creates implementation plans
 │   ├── reviewer.md      # Code review
 │   └── worker.md        # General-purpose (full capabilities)
 └── prompts/             # Workflow presets (prompt templates)
@@ -235,7 +235,7 @@ Project agents override user agents with the same name when `agentScope: "both"`
 | Agent | Purpose | Provider | Model | Tools |
 |-------|---------|----------|-------|-------|
 | `explorer` | Fast codebase recon | `google` | `gemini-3-flash-preview` | read, grep, find, ls, bash |
-| `planner` | Implementation plans | `openai` | `openai/gpt-5.4` | read, grep, find, ls |
+| `planner` | Automatic implementation planning | `openai` | `openai/gpt-5.4` | read, grep, find, ls, question |
 | `reviewer` | Code review | `google` | `gemini-3.1-pro-preview` | read, grep, find, ls, bash |
 | `worker` | General-purpose | `openrouter` | `gpt-5.4-mini` | (all default) |
 
