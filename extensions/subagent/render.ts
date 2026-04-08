@@ -393,41 +393,17 @@ export function renderSubagentCall(args: RenderCallArgs, theme: Theme) {
         );
     }
     if (args.chain && args.chain.length > 0) {
-        let text =
+        const text =
             theme.fg("toolTitle", theme.bold("subagent ")) +
             theme.fg("accent", `chain (${args.chain.length} steps)`) +
             theme.fg("muted", ` [${scope}]`);
-        for (let idx = 0; idx < Math.min(args.chain.length, 3); idx++) {
-            const step = args.chain[idx];
-            const preview = getTaskPreview(step.task, 40)
-                .replaceAll("{previous}", "")
-                .replaceAll("{previous_output}", "")
-                .replaceAll("{previous_agent}", "")
-                .trim();
-            text +=
-                "\n  " +
-                theme.fg("muted", `${idx + 1}.`) +
-                " " +
-                theme.fg("accent", step.agent) +
-                theme.fg("dim", ` ${preview}`);
-        }
-        if (args.chain.length > 3) {
-            text += `\n  ${theme.fg("muted", `... +${args.chain.length - 3} more`)}`;
-        }
         return new Text(text, 0, 0);
     }
     if (args.tasks && args.tasks.length > 0) {
-        let text =
+        const text =
             theme.fg("toolTitle", theme.bold("subagent ")) +
             theme.fg("accent", `parallel (${args.tasks.length} tasks)`) +
             theme.fg("muted", ` [${scope}]`);
-        for (const task of args.tasks.slice(0, 3)) {
-            const preview = getTaskPreview(task.task, 40);
-            text += `\n  ${theme.fg("accent", task.agent)}${theme.fg("dim", ` ${preview}`)}`;
-        }
-        if (args.tasks.length > 3) {
-            text += `\n  ${theme.fg("muted", `... +${args.tasks.length - 3} more`)}`;
-        }
         return new Text(text, 0, 0);
     }
 
@@ -730,11 +706,7 @@ export function renderSubagentResult(
     if (details.mode === "list") {
         const availableAgents = details.availableAgents ?? [];
         const countLabel = `${availableAgents.length} available`;
-        let text =
-            theme.fg("toolTitle", theme.bold("subagent ")) +
-            theme.fg("accent", "list") +
-            theme.fg("muted", ` [${details.agentScope}]`);
-        text += `\n${theme.fg("muted", countLabel)}`;
+        let text = theme.fg("muted", countLabel);
         if (details.projectAgentsDir && details.agentScope !== "user") {
             text += `\n${renderChecklistNote(`project agents: ${shortenHomePath(details.projectAgentsDir)}`)}`;
         }
@@ -795,17 +767,31 @@ export function renderSubagentResult(
 
         if (expanded) {
             const container = new Container();
-            container.addChild(
-                new Text(
-                    theme.fg("toolTitle", theme.bold("subagent ")) +
-                        theme.fg("accent", resultStage.agent) +
-                        theme.fg("muted", ` • ${statusLabel}`),
-                    0,
-                    0,
-                ),
-            );
             addWarningsToContainer(container);
-            addExpandedStageRow(container, row, 220);
+
+            if (usage) {
+                container.addChild(new Spacer(1));
+                container.addChild(new Text(renderChecklistNote(usage), 0, 0));
+            }
+            maybeAddStageOutput(
+                container,
+                resultStage,
+                row.displayItems,
+                row.finalOutput,
+            );
+            if (isResultError(resultStage)) {
+                container.addChild(
+                    new Text(
+                        renderChecklistNote(
+                            getResultErrorText(resultStage),
+                            "error",
+                        ),
+                        0,
+                        0,
+                    ),
+                );
+            }
+
             addFooterSummary(container, {
                 title: `subagent ${resultStage.agent}`,
                 status: getFooterStatusText(row.state),
@@ -814,28 +800,15 @@ export function renderSubagentResult(
             return container;
         }
 
-        let text =
-            theme.fg("toolTitle", theme.bold("subagent ")) +
-            theme.fg("accent", resultStage.agent) +
-            theme.fg("muted", ` • ${statusLabel}`);
+        let text = "";
         if (warningsText.length > 0) {
-            text += `\n${warningsText.join("\n")}`;
+            text += warningsText.join("\n") + "\n";
         }
-        text += `\n${renderChecklistLine({
-            label: row.label,
-            state: row.state,
-            position: row.position,
-            meta: row.stage ? `(${row.stage.agentSource})` : undefined,
-        })}`;
-        text += `\n${renderChecklistNote(compactText(row.task, 140))}`;
-        text += `\n${getStagePreviewNote(
+        text += getStagePreviewNote(
             resultStage,
             row.displayItems,
             row.finalOutput,
-        )}`;
-        if (!usage && row.displayItems.length > COLLAPSED_ITEM_COUNT) {
-            text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
-        }
+        );
 
         const container = new Container();
         container.addChild(new Text(text, 0, 0));
@@ -872,13 +845,6 @@ export function renderSubagentResult(
 
         if (expanded) {
             const container = new Container();
-            container.addChild(
-                new Text(
-                    `${icon} ${theme.fg("toolTitle", theme.bold("subagent chain"))}${theme.fg("muted", ` • ${status}`)}`,
-                    0,
-                    0,
-                ),
-            );
             addWarningsToContainer(container);
             for (const row of rows) {
                 addExpandedStageRow(container, row, 220);
@@ -897,14 +863,11 @@ export function renderSubagentResult(
             return container;
         }
 
-        let text = `${icon} ${theme.fg("toolTitle", theme.bold("subagent chain"))}${theme.fg("muted", ` • ${status}`)}`;
+        let text = "";
         if (warningsText.length > 0) {
-            text += `\n${warningsText.join("\n")}`;
+            text += warningsText.join("\n") + "\n";
         }
-        text += `\n${renderCollapsedWorkflowRows(rows, 120)}`;
-        if (!totalUsage) {
-            text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
-        }
+        text += renderCollapsedWorkflowRows(rows, 120);
         const container = new Container();
         container.addChild(new Text(text, 0, 0));
         addFooterSummary(container, {
@@ -940,13 +903,6 @@ export function renderSubagentResult(
 
         if (expanded) {
             const container = new Container();
-            container.addChild(
-                new Text(
-                    `${icon} ${theme.fg("toolTitle", theme.bold("subagent parallel"))}${theme.fg("muted", ` • ${status}`)}`,
-                    0,
-                    0,
-                ),
-            );
             addWarningsToContainer(container);
             for (const row of rows) {
                 addExpandedStageRow(container, row, 220);
@@ -965,14 +921,11 @@ export function renderSubagentResult(
             return container;
         }
 
-        let text = `${icon} ${theme.fg("toolTitle", theme.bold("subagent parallel"))}${theme.fg("muted", ` • ${status}`)}`;
+        let text = "";
         if (warningsText.length > 0) {
-            text += `\n${warningsText.join("\n")}`;
+            text += warningsText.join("\n") + "\n";
         }
-        text += `\n${renderCollapsedWorkflowRows(rows, 120)}`;
-        if (!totalUsage) {
-            text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
-        }
+        text += renderCollapsedWorkflowRows(rows, 120);
         const container = new Container();
         container.addChild(new Text(text, 0, 0));
         addFooterSummary(container, {
