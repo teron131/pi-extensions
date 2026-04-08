@@ -1,6 +1,6 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Key, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
-import { formatPercent, formatTokens } from "../footer.js";
+import { formatTokens, getFooterMetricParts } from "../footer.js";
 import type { SingleResult } from "./chain.js";
 
 export const SUBAGENT_WIDGET_ID = "subagent-widget";
@@ -116,34 +116,23 @@ function padVisible(text: string, width: number): string {
     return `${text}${" ".repeat(width - textWidth)}`;
 }
 
-function formatCacheReadValue(cacheRead: number, input: number): string {
-    if (cacheRead === 0) {
-        return "0%";
-    }
-
-    const totalInput = input + cacheRead;
-    const cacheShare = formatPercent(cacheRead, totalInput);
-    return cacheShare || formatTokens(cacheRead);
-}
-
 function formatUsageColumns(stats: SubagentStats): {
     runs: string;
-    input: string;
-    output: string;
-    cacheRead: string;
-    contextTokens: string;
-    cost: string;
-    turns: string;
+    parts: string[];
 } {
     const fails = stats.failures > 0 ? ` (${stats.failures} failed)` : "";
     return {
         runs: `${stats.runs} run${stats.runs > 1 ? "s" : ""}${fails}`,
-        input: `⬆️ ${formatTokens(stats.input)}`,
-        output: `⬇️ ${formatTokens(stats.output)}`,
-        cacheRead: `💾${formatCacheReadValue(stats.cacheRead, stats.input)}`,
-        contextTokens: `📐${formatTokens(stats.contextTokens)}`,
-        cost: `💸$${stats.cost.toFixed(3)}`,
-        turns: `💬${stats.turns}`,
+        parts: getFooterMetricParts({
+            input: stats.input,
+            output: stats.output,
+            cacheRead: stats.cacheRead,
+            contextTokens: stats.contextTokens,
+            cost: stats.cost,
+            count: stats.turns,
+            showZeroCache: true,
+            showZeroContext: true,
+        }),
     };
 }
 
@@ -185,21 +174,12 @@ export function renderSubagentWidgetLines(
     const columnWidths = {
         name: Math.max(0, ...rows.map((row) => visibleWidth(row.stats.name))),
         runs: Math.max(0, ...rows.map((row) => visibleWidth(row.usage.runs))),
-        input: Math.max(0, ...rows.map((row) => visibleWidth(row.usage.input))),
-        output: Math.max(
-            0,
-            ...rows.map((row) => visibleWidth(row.usage.output)),
+        parts: [0, 1, 2, 3, 4, 5].map((i) =>
+            Math.max(
+                0,
+                ...rows.map((row) => visibleWidth(row.usage.parts[i] || "")),
+            ),
         ),
-        cacheRead: Math.max(
-            0,
-            ...rows.map((row) => visibleWidth(row.usage.cacheRead)),
-        ),
-        contextTokens: Math.max(
-            0,
-            ...rows.map((row) => visibleWidth(row.usage.contextTokens)),
-        ),
-        cost: Math.max(0, ...rows.map((row) => visibleWidth(row.usage.cost))),
-        turns: Math.max(0, ...rows.map((row) => visibleWidth(row.usage.turns))),
     };
 
     for (const { stats, running, usage } of rows) {
@@ -216,34 +196,14 @@ export function renderSubagentWidgetLines(
             stats.failures > 0 ? "error" : "dim",
             padVisible(usage.runs, columnWidths.runs),
         );
-        const inputText = theme.fg(
-            "muted",
-            padVisible(usage.input, columnWidths.input),
-        );
-        const outputText = theme.fg(
-            "muted",
-            padVisible(usage.output, columnWidths.output),
-        );
-        const cacheText = theme.fg(
-            "muted",
-            padVisible(usage.cacheRead, columnWidths.cacheRead),
-        );
-        const contextText = theme.fg(
-            "muted",
-            padVisible(usage.contextTokens, columnWidths.contextTokens),
-        );
-        const costText = theme.fg(
-            "muted",
-            padVisible(usage.cost, columnWidths.cost),
-        );
-        const turnsText = theme.fg(
-            "muted",
-            padVisible(usage.turns, columnWidths.turns),
+
+        const metricTexts = usage.parts.map((part, i) =>
+            theme.fg("muted", padVisible(part, columnWidths.parts[i] || 0)),
         );
 
         lines.push(
             truncateToWidth(
-                `  ${statusText} ${nameText}  ${runsText}  ${inputText}  ${outputText}  ${cacheText}  ${contextText}  ${costText}  ${turnsText}`,
+                `  ${statusText} ${nameText}  ${runsText}  ${metricTexts.join("  ")}`,
                 width,
             ),
         );

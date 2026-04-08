@@ -35,6 +35,8 @@ export interface FooterMetricsOptions {
     contextText?: string;
     count?: number | string;
     model?: string;
+    showZeroCache?: boolean;
+    showZeroContext?: boolean;
 }
 
 export interface SharedUsageTotals {
@@ -101,17 +103,19 @@ export function getFooterMetricParts(options: FooterMetricsOptions): string[] {
     parts.push(`⬆️ ${formatTokens(totalInput)}`);
     parts.push(`⬇️ ${formatTokens(output)}`);
 
-    if (cacheRead) {
-        const cacheShare = formatPercent(cacheRead, totalInput);
-        if (cacheShare) parts.push(`💾${cacheShare}`);
+    if (cacheRead || options.showZeroCache) {
+        const cacheShare = formatPercent(cacheRead, totalInput) || "0%";
+        parts.push(`💾${cacheShare}`);
     }
 
     const contextText =
         options.contextText ??
         (options.contextTokens && options.contextTokens > 0
             ? formatTokens(options.contextTokens)
-            : null);
-    if (contextText) parts.push(`📐${contextText}`);
+            : options.showZeroContext && options.contextTokens !== undefined
+              ? formatTokens(options.contextTokens)
+              : null);
+    if (contextText !== null) parts.push(`📐${contextText}`);
 
     const cost = options.cost ?? 0;
     parts.push(`💸$${cost.toFixed(3)}`);
