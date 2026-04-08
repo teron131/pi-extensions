@@ -143,7 +143,8 @@ Chain steps can reference earlier results with these placeholders:
 The subagent extension now also emits a separate final display message for the user, so the delegated result is visible in the conversation itself and not only inside the tool result UI.
 
 **Collapsed view** (default):
-- Status icon (✓/✗/⏳) and agent name
+- Status icon (✓/✗/⏳/◐) and agent or workflow name
+- Running single/chain/parallel executions now show explicit in-progress state instead of looking complete or failed too early
 - Last 5-10 items (tool calls and text)
 - Usage stats: `3 turns ↑input ↓output RcacheRead WcacheWrite $cost ctx:contextTokens model`
 
@@ -153,6 +154,7 @@ The subagent extension now also emits a separate final display message for the u
 - Final output rendered as Markdown
 - Per-task usage (for chain/parallel)
 - Rich agent discovery details when using `action: "list"`
+- Parallel runs stay expanded while still running, so you can watch each task progress in place
 
 **Conversation display message**:
 - After execution, the extension emits a markdown summary into the conversation

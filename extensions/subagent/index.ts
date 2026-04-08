@@ -1665,7 +1665,7 @@ export default function (pi: ExtensionAPI) {
             return new Text(text, 0, 0);
         },
 
-        renderResult(result, { expanded }, theme, _context) {
+        renderResult(result, { expanded, isPartial }, theme, _context) {
             const details = result.details as SubagentDetails | undefined;
             if (!details) {
                 const text = result.content[0];
@@ -1688,6 +1688,60 @@ export default function (pi: ExtensionAPI) {
                 );
                 for (const warning of warningsText) {
                     container.addChild(new Text(warning, 0, 0));
+                }
+            };
+            const getStageIcon = (stage: SingleResult): string => {
+                if (isResultRunning(stage)) return theme.fg("warning", "⏳");
+                if (isResultSuccess(stage)) return theme.fg("success", "✓");
+                return theme.fg("error", "✗");
+            };
+            const renderStageEmptyState = (stage: SingleResult): string => {
+                if (isResultRunning(stage)) {
+                    return theme.fg("warning", "(running...)");
+                }
+                if (isResultError(stage)) {
+                    return theme.fg("error", getResultErrorText(stage));
+                }
+                return theme.fg("muted", "(no output)");
+            };
+            const maybeAddStageOutput = (
+                container: Container,
+                stage: SingleResult,
+                displayItems: DisplayItem[],
+                finalOutput: string,
+            ) => {
+                if (displayItems.length === 0 && !finalOutput) {
+                    const emptyState = isResultRunning(stage)
+                        ? theme.fg("warning", "(running...)")
+                        : isResultError(stage)
+                          ? theme.fg("muted", "(see error below)")
+                          : theme.fg("muted", "(no output)");
+                    container.addChild(new Text(emptyState, 0, 0));
+                    return;
+                }
+
+                for (const item of displayItems) {
+                    if (item.type === "toolCall") {
+                        container.addChild(
+                            new Text(
+                                theme.fg("muted", "→ ") +
+                                    formatToolCall(
+                                        item.name,
+                                        item.args,
+                                        theme.fg.bind(theme),
+                                    ),
+                                0,
+                                0,
+                            ),
+                        );
+                    }
+                }
+
+                if (finalOutput) {
+                    container.addChild(new Spacer(1));
+                    container.addChild(
+                        new Markdown(finalOutput.trim(), 0, 0, mdTheme),
+                    );
                 }
             };
 
@@ -1834,18 +1888,20 @@ export default function (pi: ExtensionAPI) {
 
             if (details.mode === "single" && details.results.length === 1) {
                 const r = details.results[0];
+                const isRunning = isResultRunning(r);
                 const isError = isResultError(r);
-                const icon = isError
-                    ? theme.fg("error", "✗")
-                    : theme.fg("success", "✓");
+                const icon = getStageIcon(r);
                 const displayItems = getDisplayItems(r.messages);
                 const finalOutput = getFinalOutput(r.messages);
 
                 if (expanded) {
                     const container = new Container();
                     let header = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
-                    if (isError && r.stopReason)
+                    if (isRunning || isPartial) {
+                        header += ` ${theme.fg("warning", "[running]")}`;
+                    } else if (isError && r.stopReason) {
                         header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
+                    }
                     container.addChild(new Text(header, 0, 0));
                     if (isError && r.errorMessage)
                         container.addChild(
@@ -1865,33 +1921,12 @@ export default function (pi: ExtensionAPI) {
                     container.addChild(
                         new Text(theme.fg("muted", "─── Output ───"), 0, 0),
                     );
-                    if (displayItems.length === 0 && !finalOutput) {
-                        container.addChild(
-                            new Text(theme.fg("muted", "(no output)"), 0, 0),
-                        );
-                    } else {
-                        for (const item of displayItems) {
-                            if (item.type === "toolCall")
-                                container.addChild(
-                                    new Text(
-                                        theme.fg("muted", "→ ") +
-                                            formatToolCall(
-                                                item.name,
-                                                item.args,
-                                                theme.fg.bind(theme),
-                                            ),
-                                        0,
-                                        0,
-                                    ),
-                                );
-                        }
-                        if (finalOutput) {
-                            container.addChild(new Spacer(1));
-                            container.addChild(
-                                new Markdown(finalOutput.trim(), 0, 0, mdTheme),
-                            );
-                        }
-                    }
+                    maybeAddStageOutput(
+                        container,
+                        r,
+                        displayItems,
+                        finalOutput,
+                    );
                     const usageStr = formatUsageStats(r.usage, r.model);
                     if (usageStr) {
                         container.addChild(new Spacer(1));
@@ -1903,15 +1938,18 @@ export default function (pi: ExtensionAPI) {
                 }
 
                 let text = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
-                if (isError && r.stopReason)
+                if (isRunning || isPartial) {
+                    text += ` ${theme.fg("warning", "[running]")}`;
+                } else if (isError && r.stopReason) {
                     text += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
+                }
                 if (warningsText.length > 0) {
                     text += `\n${warningsText.join("\n")}`;
                 }
                 if (isError && r.errorMessage)
                     text += `\n${theme.fg("error", `Error: ${r.errorMessage}`)}`;
                 else if (displayItems.length === 0)
-                    text += `\n${theme.fg("muted", "(no output)")}`;
+                    text += `\n${renderStageEmptyState(r)}`;
                 else {
                     text += `\n${renderDisplayItems(displayItems, COLLAPSED_ITEM_COUNT)}`;
                     if (displayItems.length > COLLAPSED_ITEM_COUNT)
@@ -1923,20 +1961,30 @@ export default function (pi: ExtensionAPI) {
             }
 
             if (details.mode === "chain") {
+                const runningCount = details.results.filter((r) =>
+                    isResultRunning(r),
+                ).length;
                 const successCount = details.results.filter((r) =>
                     isResultSuccess(r),
                 ).length;
                 const failureCount = details.results.filter((r) =>
                     isResultError(r),
                 ).length;
+                const runningStage = details.results.find((r) =>
+                    isResultRunning(r),
+                );
                 const status =
-                    failureCount > 0
-                        ? `${successCount}/${details.results.length} succeeded, ${failureCount} failed`
-                        : `${successCount}/${details.results.length} steps`;
+                    runningCount > 0
+                        ? `${successCount + failureCount}/${details.results.length} done, step ${runningStage?.step ?? "?"} running`
+                        : failureCount > 0
+                          ? `${successCount}/${details.results.length} succeeded, ${failureCount} failed`
+                          : `${successCount}/${details.results.length} steps`;
                 const icon =
-                    successCount === details.results.length
-                        ? theme.fg("success", "✓")
-                        : theme.fg("error", "✗");
+                    runningCount > 0
+                        ? theme.fg("warning", "⏳")
+                        : failureCount > 0
+                          ? theme.fg("warning", "◐")
+                          : theme.fg("success", "✓");
 
                 if (expanded) {
                     const container = new Container();
@@ -1953,9 +2001,7 @@ export default function (pi: ExtensionAPI) {
                     addWarningsToContainer(container);
 
                     for (const r of details.results) {
-                        const rIcon = isResultSuccess(r)
-                            ? theme.fg("success", "✓")
-                            : theme.fg("error", "✗");
+                        const rIcon = getStageIcon(r);
                         const displayItems = getDisplayItems(r.messages);
                         const finalOutput = getFinalOutput(r.messages);
 
@@ -1976,31 +2022,12 @@ export default function (pi: ExtensionAPI) {
                             ),
                         );
 
-                        // Show tool calls
-                        for (const item of displayItems) {
-                            if (item.type === "toolCall") {
-                                container.addChild(
-                                    new Text(
-                                        theme.fg("muted", "→ ") +
-                                            formatToolCall(
-                                                item.name,
-                                                item.args,
-                                                theme.fg.bind(theme),
-                                            ),
-                                        0,
-                                        0,
-                                    ),
-                                );
-                            }
-                        }
-
-                        // Show final output as markdown
-                        if (finalOutput) {
-                            container.addChild(new Spacer(1));
-                            container.addChild(
-                                new Markdown(finalOutput.trim(), 0, 0, mdTheme),
-                            );
-                        }
+                        maybeAddStageOutput(
+                            container,
+                            r,
+                            displayItems,
+                            finalOutput,
+                        );
 
                         if (isResultError(r)) {
                             container.addChild(
@@ -2054,15 +2081,11 @@ export default function (pi: ExtensionAPI) {
                     text += `\n${warningsText.join("\n")}`;
                 }
                 for (const r of details.results) {
-                    const rIcon = isResultSuccess(r)
-                        ? theme.fg("success", "✓")
-                        : theme.fg("error", "✗");
+                    const rIcon = getStageIcon(r);
                     const displayItems = getDisplayItems(r.messages);
                     text += `\n\n${theme.fg("muted", `─── Step ${r.step}: `)}${theme.fg("accent", r.agent)} ${rIcon}`;
                     if (displayItems.length === 0) {
-                        text += isResultError(r)
-                            ? `\n${theme.fg("error", getResultErrorText(r))}`
-                            : `\n${theme.fg("muted", "(no output)")}`;
+                        text += `\n${renderStageEmptyState(r)}`;
                     } else {
                         text += `\n${renderDisplayItems(displayItems, 5)}`;
                     }
@@ -2104,7 +2127,7 @@ export default function (pi: ExtensionAPI) {
                       ? `${successCount}/${details.results.length} succeeded, ${failCount} failed`
                       : `${successCount}/${details.results.length} tasks`;
 
-                if (expanded && !isRunning) {
+                if (expanded) {
                     const container = new Container();
                     container.addChild(
                         new Text(
@@ -2116,9 +2139,7 @@ export default function (pi: ExtensionAPI) {
                     addWarningsToContainer(container);
 
                     for (const r of details.results) {
-                        const rIcon = isResultSuccess(r)
-                            ? theme.fg("success", "✓")
-                            : theme.fg("error", "✗");
+                        const rIcon = getStageIcon(r);
                         const displayItems = getDisplayItems(r.messages);
                         const finalOutput = getFinalOutput(r.messages);
 
@@ -2139,31 +2160,12 @@ export default function (pi: ExtensionAPI) {
                             ),
                         );
 
-                        // Show tool calls
-                        for (const item of displayItems) {
-                            if (item.type === "toolCall") {
-                                container.addChild(
-                                    new Text(
-                                        theme.fg("muted", "→ ") +
-                                            formatToolCall(
-                                                item.name,
-                                                item.args,
-                                                theme.fg.bind(theme),
-                                            ),
-                                        0,
-                                        0,
-                                    ),
-                                );
-                            }
-                        }
-
-                        // Show final output as markdown
-                        if (finalOutput) {
-                            container.addChild(new Spacer(1));
-                            container.addChild(
-                                new Markdown(finalOutput.trim(), 0, 0, mdTheme),
-                            );
-                        }
+                        maybeAddStageOutput(
+                            container,
+                            r,
+                            displayItems,
+                            finalOutput,
+                        );
 
                         if (isResultError(r)) {
                             container.addChild(
@@ -2185,24 +2187,28 @@ export default function (pi: ExtensionAPI) {
                             );
                     }
 
-                    const models = Array.from(
-                        new Set(
-                            details.results.map((r) => r.model).filter(Boolean),
-                        ),
-                    ).join(", ");
-                    const usageStr = formatUsageStats(
-                        aggregateUsage(details.results),
-                        models || undefined,
-                    );
-                    if (usageStr) {
-                        container.addChild(new Spacer(1));
-                        container.addChild(
-                            new Text(
-                                theme.fg("dim", `Total: ${usageStr}`),
-                                0,
-                                0,
+                    if (!isRunning) {
+                        const models = Array.from(
+                            new Set(
+                                details.results
+                                    .map((r) => r.model)
+                                    .filter(Boolean),
                             ),
+                        ).join(", ");
+                        const usageStr = formatUsageStats(
+                            aggregateUsage(details.results),
+                            models || undefined,
                         );
+                        if (usageStr) {
+                            container.addChild(new Spacer(1));
+                            container.addChild(
+                                new Text(
+                                    theme.fg("dim", `Total: ${usageStr}`),
+                                    0,
+                                    0,
+                                ),
+                            );
+                        }
                     }
                     return container;
                 }
