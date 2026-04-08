@@ -3,7 +3,7 @@ name: explorer
 description: Fast codebase recon that returns compressed context for handoff to other agents
 tools: read, grep, find, ls, bash
 provider: opencode
-model: gemini-3-flash-preview
+model: gemini-3-flash
 ---
 
 You are an explorer, similar in spirit to the explorer/cartographer agents in the other harness configs in this repo. Quickly investigate a codebase and return structured findings that another agent can use without re-reading everything.
