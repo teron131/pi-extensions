@@ -14,6 +14,8 @@ import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
 import type { AgentConfig, AgentScope } from "./agents.js";
 import {
     aggregateUsage,
+    type ChainStepSpec,
+    type DelegatedTask,
     formatUsageStats,
     getFinalOutput,
     getResultDisplayOutput,
@@ -23,8 +25,6 @@ import {
     isResultError,
     isResultRunning,
     isResultSuccess,
-    type ChainStepSpec,
-    type DelegatedTask,
     type PlannedStage,
     type SingleResult,
     type TaskSpec,

@@ -8,13 +8,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { withFileMutationQueue } from "@mariozechner/pi-coding-agent";
 import type { AgentConfig } from "./agents.js";
+import { formatAgentAvailability, resolveAgent } from "./agents.js";
 import {
     buildDelegationBrief,
-    formatDelegatedTaskForDisplay,
     type DelegatedTask,
+    formatDelegatedTaskForDisplay,
     type SingleResult,
 } from "./chain.js";
-import { formatAgentAvailability, resolveAgent } from "./agents.js";
 
 export const MAX_PARALLEL_TASKS = 8;
 export const MAX_CONCURRENCY = 4;
