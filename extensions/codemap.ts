@@ -10,12 +10,12 @@ import path from "node:path";
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import {
-	DEFAULT_MAX_BYTES,
-	DEFAULT_MAX_LINES,
-	formatSize,
-	truncateHead,
-	type TruncationResult,
-	withFileMutationQueue,
+    DEFAULT_MAX_BYTES,
+    DEFAULT_MAX_LINES,
+    formatSize,
+    type TruncationResult,
+    truncateHead,
+    withFileMutationQueue,
 } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
@@ -331,99 +331,144 @@ const TOOL_TIMEOUT_MS = 120_000;
 const TEMP_OUTPUT_PREFIX = "pi-codemap-";
 const TEMP_OUTPUT_FILE = "output.txt";
 
-const ModuleStatsParams = Type.Object({
-	path: Type.Optional(Type.String({ description: "Directory to inspect, relative to the current working directory. Leading @ is allowed." })),
+const CodemapParams = Type.Object({
+    path: Type.Optional(
+        Type.String({
+            description:
+                "Directory to inspect, relative to the current working directory. Leading @ is allowed.",
+        }),
+    ),
 });
 
-interface ModuleStatsDetails {
-	path: string;
-	truncated?: boolean;
-	fullOutputPath?: string;
+interface CodemapDetails {
+    path: string;
+    truncated?: boolean;
+    fullOutputPath?: string;
 }
 
 function normalizeModulePath(input?: string): string {
-	if (!input) {
-		return ".";
-	}
+    if (!input) {
+        return ".";
+    }
 
-	const normalized = input.replace(/^@/, "").trim();
-	return normalized || ".";
+    const normalized = input.replace(/^@/, "").trim();
+    return normalized || ".";
 }
 
-function appendTruncationNotice(text: string, truncation: TruncationResult, outputPath: string): string {
-	const hiddenLines = truncation.totalLines - truncation.outputLines;
-	const hiddenBytes = truncation.totalBytes - truncation.outputBytes;
+function appendTruncationNotice(
+    text: string,
+    truncation: TruncationResult,
+    outputPath: string,
+): string {
+    const hiddenLines = truncation.totalLines - truncation.outputLines;
+    const hiddenBytes = truncation.totalBytes - truncation.outputBytes;
 
-	let result = text;
-	result += `\n\n[Output truncated: showing ${truncation.outputLines} of ${truncation.totalLines} lines`;
-	result += ` (${formatSize(truncation.outputBytes)} of ${formatSize(truncation.totalBytes)}).`;
-	result += ` ${hiddenLines} lines (${formatSize(hiddenBytes)}) omitted.`;
-	result += ` Full output saved to: ${outputPath}]`;
-	return result;
+    let result = text;
+    result += `\n\n[Output truncated: showing ${truncation.outputLines} of ${truncation.totalLines} lines`;
+    result += ` (${formatSize(truncation.outputBytes)} of ${formatSize(truncation.totalBytes)}).`;
+    result += ` ${hiddenLines} lines (${formatSize(hiddenBytes)}) omitted.`;
+    result += ` Full output saved to: ${outputPath}]`;
+    return result;
 }
 
 async function saveFullOutput(output: string): Promise<string> {
-	const tempDir = await mkdtemp(path.join(tmpdir(), TEMP_OUTPUT_PREFIX));
-	const tempFile = path.join(tempDir, TEMP_OUTPUT_FILE);
-	await withFileMutationQueue(tempFile, async () => {
-		await writeFile(tempFile, output, "utf8");
-	});
-	return tempFile;
+    const tempDir = await mkdtemp(path.join(tmpdir(), TEMP_OUTPUT_PREFIX));
+    const tempFile = path.join(tempDir, TEMP_OUTPUT_FILE);
+    await withFileMutationQueue(tempFile, async () => {
+        await writeFile(tempFile, output, "utf8");
+    });
+    return tempFile;
+}
+
+async function runCodemapScript(
+    pi: ExtensionAPI,
+    cwd: string,
+    targetPath: string,
+    signal: AbortSignal,
+) {
+    return pi.exec(
+        "bash",
+        ["-c", MODULE_STATS_SCRIPT, "codemap.sh", targetPath],
+        {
+            cwd,
+            signal,
+            timeout: TOOL_TIMEOUT_MS,
+        },
+    );
 }
 
 export default function (pi: ExtensionAPI) {
-	pi.registerTool({
-		name: TOOL_NAME,
-		label: TOOL_LABEL,
-		description: `Generate deterministic filesystem, AST, symbol, and import/export stats for a module or repo path. Output is truncated to ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)} (whichever is hit first). If truncated, the full report is saved to a temp file.`,
-		promptSnippet: "Generate deterministic codemap stats for repo and module analysis.",
-		promptGuidelines: [
-			"Use codemap before writing architecture conclusions when deterministic scope, symbol, or relationship evidence would help.",
-			"Prefer a focused module path over the repo root when the user scopes the request to one area.",
-		],
-		parameters: ModuleStatsParams,
+    pi.registerTool({
+        name: TOOL_NAME,
+        label: TOOL_LABEL,
+        description: `Generate deterministic filesystem, AST, symbol, and import/export stats for a module or repo path. Output is truncated to ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)} (whichever is hit first). If truncated, the full report is saved to a temp file.`,
+        promptSnippet:
+            "Generate deterministic codemap stats for repo and module analysis.",
+        promptGuidelines: [
+            "Use codemap before writing architecture conclusions when deterministic scope, symbol, or relationship evidence would help.",
+            "Prefer a focused module path over the repo root when the user scopes the request to one area.",
+        ],
+        parameters: CodemapParams,
 
-		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			const targetPath = normalizeModulePath(params.path);
+        async execute(_toolCallId, params, signal, onUpdate, ctx) {
+            const targetPath = normalizeModulePath(params.path);
 
-			onUpdate?.({
-				content: [{ type: "text", text: `Collecting module stats for ${targetPath}...` }],
-				details: { path: targetPath },
-			});
+            onUpdate?.({
+                content: [
+                    {
+                        type: "text",
+                        text: `Collecting module stats for ${targetPath}...`,
+                    },
+                ],
+                details: { path: targetPath },
+            });
 
-			const result = await pi.exec("bash", ["-c", MODULE_STATS_SCRIPT, "codemap.sh", targetPath], {
-				cwd: ctx.cwd,
-				signal,
-				timeout: TOOL_TIMEOUT_MS,
-			});
+            const result = await runCodemapScript(
+                pi,
+                ctx.cwd,
+                targetPath,
+                signal,
+            );
 
-			if (result.code !== 0) {
-				const message = result.stderr.trim() || result.stdout.trim() || `${TOOL_NAME} failed with code ${result.code}`;
-				throw new Error(message);
-			}
+            if (result.code !== 0) {
+                const message =
+                    result.stderr.trim() ||
+                    result.stdout.trim() ||
+                    `${TOOL_NAME} failed with code ${result.code}`;
+                throw new Error(message);
+            }
 
-			const output = result.stdout.trim() || "No output.";
-			const truncation = truncateHead(output, {
-				maxLines: DEFAULT_MAX_LINES,
-				maxBytes: DEFAULT_MAX_BYTES,
-			});
-			const details: ModuleStatsDetails = { path: targetPath };
+            const output = result.stdout.trim() || "No output.";
+            const truncation = truncateHead(output, {
+                maxLines: DEFAULT_MAX_LINES,
+                maxBytes: DEFAULT_MAX_BYTES,
+            });
+            const details: CodemapDetails = { path: targetPath };
 
-			if (!truncation.truncated) {
-				return {
-					content: [{ type: "text", text: truncation.content }],
-					details,
-				};
-			}
+            if (!truncation.truncated) {
+                return {
+                    content: [{ type: "text", text: truncation.content }],
+                    details,
+                };
+            }
 
-			const fullOutputPath = await saveFullOutput(output);
-			details.truncated = true;
-			details.fullOutputPath = fullOutputPath;
+            const fullOutputPath = await saveFullOutput(output);
+            details.truncated = true;
+            details.fullOutputPath = fullOutputPath;
 
-			return {
-				content: [{ type: "text", text: appendTruncationNotice(truncation.content, truncation, fullOutputPath) }],
-				details,
-			};
-		},
-	});
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: appendTruncationNotice(
+                            truncation.content,
+                            truncation,
+                            fullOutputPath,
+                        ),
+                    },
+                ],
+                details,
+            };
+        },
+    });
 }

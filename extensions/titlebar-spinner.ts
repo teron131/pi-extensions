@@ -15,11 +15,13 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 
 const BRAILLE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const ANIMATION_INTERVAL_MS = 80;
 
-function getBaseTitle(pi: ExtensionAPI): string {
+function buildTitle(pi: ExtensionAPI, frame?: string): string {
     const cwd = path.basename(process.cwd());
     const session = pi.getSessionName();
-    return session ? `π - ${session} - ${cwd}` : `π - ${cwd}`;
+    const prefix = frame ? `${frame} ` : "";
+    return session ? `${prefix}π - ${session} - ${cwd}` : `${prefix}π - ${cwd}`;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -32,21 +34,16 @@ export default function (pi: ExtensionAPI) {
             timer = null;
         }
         frameIndex = 0;
-        ctx.ui.setTitle(getBaseTitle(pi));
+        ctx.ui.setTitle(buildTitle(pi));
     }
 
     function startAnimation(ctx: ExtensionContext) {
         stopAnimation(ctx);
         timer = setInterval(() => {
             const frame = BRAILLE_FRAMES[frameIndex % BRAILLE_FRAMES.length];
-            const cwd = path.basename(process.cwd());
-            const session = pi.getSessionName();
-            const title = session
-                ? `${frame} π - ${session} - ${cwd}`
-                : `${frame} π - ${cwd}`;
-            ctx.ui.setTitle(title);
+            ctx.ui.setTitle(buildTitle(pi, frame));
             frameIndex++;
-        }, 80);
+        }, ANIMATION_INTERVAL_MS);
     }
 
     pi.on("agent_start", async (_event, ctx) => {
