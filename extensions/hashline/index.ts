@@ -193,6 +193,12 @@ type FileTextSnapshot = {
     hasTrailingNewline: boolean;
 };
 
+type ReadSnapshot = {
+    lines: string[];
+};
+
+const lastReadSnapshots = new Map<string, ReadSnapshot>();
+
 class HashlineMismatchError extends Error {
     constructor(
         public readonly mismatches: HashMismatch[],
@@ -243,8 +249,7 @@ function buildHashlineTagFromDigest(
     let tag = "";
     for (let nibbleIndex = 0; nibbleIndex < tagLength; nibbleIndex += 1) {
         const byte = digest[Math.floor(nibbleIndex / 2)] ?? 0;
-        const nibble =
-            nibbleIndex % 2 === 0 ? byte >>> 4 : byte & 0x0f;
+        const nibble = nibbleIndex % 2 === 0 ? byte >>> 4 : byte & 0x0f;
         tag += HASHLINE_NIBBLE_ALPHABET[nibble] ?? HASHLINE_NIBBLE_ALPHABET[0];
     }
     return tag;
@@ -452,18 +457,94 @@ function createTextToolResult<T>(text: string, details: T): AgentToolResult<T> {
     };
 }
 
+function getLineAt(fileLines: string[], lineNumber: number): string {
+    return fileLines[lineNumber - 1] ?? "";
+}
+
+function getLineHashAt(fileLines: string[], lineNumber: number): string {
+    return computeLineHash(lineNumber, getLineAt(fileLines, lineNumber));
+}
+
+function setMismatch(
+    mismatchesByLine: Map<number, HashMismatch>,
+    lineNumber: number,
+    expected: string,
+    actual: string,
+): void {
+    mismatchesByLine.set(lineNumber, {
+        line: lineNumber,
+        expected,
+        actual,
+    });
+}
+
+function addMismatch(
+    mismatchesByLine: Map<number, HashMismatch>,
+    lineNumber: number,
+    expectedLine: string,
+    fileLines: string[],
+): void {
+    const actual = getLineHashAt(fileLines, lineNumber);
+    const expected = computeLineHash(lineNumber, expectedLine);
+    if (actual === expected) {
+        return;
+    }
+
+    setMismatch(mismatchesByLine, lineNumber, expected, actual);
+}
+
+function addAnchorMismatch(
+    mismatchesByLine: Map<number, HashMismatch>,
+    anchor: HashlineAnchor,
+    fileLines: string[],
+): void {
+    const actualHash = getLineHashAt(fileLines, anchor.line);
+    if (actualHash === anchor.hash) {
+        return;
+    }
+
+    setMismatch(mismatchesByLine, anchor.line, anchor.hash, actualHash);
+}
+
+function getSnapshotRangeLines(
+    edit: ReplaceRangeEdit,
+    snapshot: ReadSnapshot | undefined,
+): string[] | undefined {
+    if (!snapshot || snapshot.lines.length < edit.end.line) {
+        return undefined;
+    }
+
+    if (
+        getLineHashAt(snapshot.lines, edit.pos.line) !== edit.pos.hash ||
+        getLineHashAt(snapshot.lines, edit.end.line) !== edit.end.hash
+    ) {
+        return undefined;
+    }
+
+    return snapshot.lines.slice(edit.pos.line - 1, edit.end.line);
+}
+
+function getSortedMismatches(
+    mismatchesByLine: Map<number, HashMismatch>,
+): HashMismatch[] {
+    return Array.from(mismatchesByLine.values()).sort(
+        (left, right) => left.line - right.line,
+    );
+}
+
 function validateAllAnchors(
     edits: NormalizedEdit[],
     fileLines: string[],
+    snapshot: ReadSnapshot | undefined,
 ): void {
-    const mismatches: HashMismatch[] = [];
-    const seen = new Set<string>();
+    const mismatchesByLine = new Map<number, HashMismatch>();
+    const seenAnchors = new Set<string>();
 
     for (const edit of edits) {
         for (const anchor of getEditAnchors(edit)) {
             const key = formatAnchor(anchor);
-            if (seen.has(key)) continue;
-            seen.add(key);
+            if (seenAnchors.has(key)) continue;
+            seenAnchors.add(key);
 
             if (anchor.line > fileLines.length) {
                 throw new Error(
@@ -471,22 +552,36 @@ function validateAllAnchors(
                 );
             }
 
-            const actualHash = computeLineHash(
-                anchor.line,
-                fileLines[anchor.line - 1] ?? "",
-            );
-            if (actualHash !== anchor.hash) {
-                mismatches.push({
-                    line: anchor.line,
-                    expected: anchor.hash,
-                    actual: actualHash,
-                });
+            addAnchorMismatch(mismatchesByLine, anchor, fileLines);
+        }
+
+        if (edit.op !== "replace_range") {
+            continue;
+        }
+
+        const snapshotRangeLines = getSnapshotRangeLines(edit, snapshot);
+        if (!snapshotRangeLines) {
+            continue;
+        }
+
+        for (
+            let lineNumber = edit.pos.line;
+            lineNumber <= edit.end.line;
+            lineNumber += 1
+        ) {
+            const expectedLine = snapshotRangeLines[lineNumber - edit.pos.line];
+            if (expectedLine === undefined) {
+                continue;
             }
+            addMismatch(mismatchesByLine, lineNumber, expectedLine, fileLines);
         }
     }
 
-    if (mismatches.length > 0) {
-        throw new HashlineMismatchError(mismatches, fileLines);
+    if (mismatchesByLine.size > 0) {
+        throw new HashlineMismatchError(
+            getSortedMismatches(mismatchesByLine),
+            fileLines,
+        );
     }
 }
 
@@ -636,8 +731,8 @@ function assertNonConflictingOperations(operations: FileEditOperation[]): void {
                     ? current
                     : (other as Extract<FileEditOperation, { kind: "insert" }>);
             if (
-                insert.point >= replace.startLine - 1 &&
-                insert.point <= replace.endLine
+                insert.point >= replace.startLine &&
+                insert.point < replace.endLine
             ) {
                 throw new Error(
                     `Conflicting edits target the same region: ${replace.description} and ${insert.description}. Merge them into one edit.`,
@@ -648,7 +743,26 @@ function assertNonConflictingOperations(operations: FileEditOperation[]): void {
 }
 
 function getOperationSortPoint(operation: FileEditOperation): number {
-    return operation.kind === "replace" ? operation.startLine : operation.point + 1;
+    return operation.kind === "replace"
+        ? operation.startLine
+        : operation.point + 1;
+}
+
+function compareOperationsDescending(
+    left: FileEditOperation,
+    right: FileEditOperation,
+): number {
+    const sortPointDiff =
+        getOperationSortPoint(right) - getOperationSortPoint(left);
+    if (sortPointDiff !== 0) {
+        return sortPointDiff;
+    }
+
+    if (left.kind === right.kind) {
+        return 0;
+    }
+
+    return left.kind === "replace" ? -1 : 1;
 }
 
 function applyOperations(
@@ -656,10 +770,7 @@ function applyOperations(
     operations: FileEditOperation[],
 ): string[] {
     const updatedLines = [...fileLines];
-    const sortedOperations = [...operations].sort(
-        (left, right) =>
-            getOperationSortPoint(right) - getOperationSortPoint(left),
-    );
+    const sortedOperations = [...operations].sort(compareOperationsDescending);
 
     for (const operation of sortedOperations) {
         if (operation.kind === "replace") {
@@ -735,7 +846,11 @@ function generateDiffString(
 ): string {
     const parts = buildDiffParts(originalLines, operations);
     const output: string[] = [];
-    const maxLineNumber = Math.max(originalLines.length, updatedLines.length, 1);
+    const maxLineNumber = Math.max(
+        originalLines.length,
+        updatedLines.length,
+        1,
+    );
     const lineNumberWidth = String(maxLineNumber).length;
     let oldLineNumber = 1;
     let newLineNumber = 1;
@@ -746,7 +861,9 @@ function generateDiffString(
 
         if (part.kind === "added") {
             for (const line of part.lines) {
-                output.push(`+${String(newLineNumber).padStart(lineNumberWidth, " ")} ${line}`);
+                output.push(
+                    `+${String(newLineNumber).padStart(lineNumberWidth, " ")} ${line}`,
+                );
                 newLineNumber += 1;
             }
             lastPartWasChange = true;
@@ -755,7 +872,9 @@ function generateDiffString(
 
         if (part.kind === "removed") {
             for (const line of part.lines) {
-                output.push(`-${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`);
+                output.push(
+                    `-${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`,
+                );
                 oldLineNumber += 1;
             }
             lastPartWasChange = true;
@@ -771,7 +890,9 @@ function generateDiffString(
         if (hasLeadingChange && hasTrailingChange) {
             if (part.lines.length <= contextLines * 2) {
                 for (const line of part.lines) {
-                    output.push(` ${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`);
+                    output.push(
+                        ` ${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`,
+                    );
                     oldLineNumber += 1;
                     newLineNumber += 1;
                 }
@@ -779,10 +900,14 @@ function generateDiffString(
                 const leadingLines = part.lines.slice(0, contextLines);
                 const trailingLines = part.lines.slice(-contextLines);
                 const skippedLineCount =
-                    part.lines.length - leadingLines.length - trailingLines.length;
+                    part.lines.length -
+                    leadingLines.length -
+                    trailingLines.length;
 
                 for (const line of leadingLines) {
-                    output.push(` ${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`);
+                    output.push(
+                        ` ${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`,
+                    );
                     oldLineNumber += 1;
                     newLineNumber += 1;
                 }
@@ -792,7 +917,9 @@ function generateDiffString(
                 newLineNumber += skippedLineCount;
 
                 for (const line of trailingLines) {
-                    output.push(` ${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`);
+                    output.push(
+                        ` ${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`,
+                    );
                     oldLineNumber += 1;
                     newLineNumber += 1;
                 }
@@ -801,7 +928,9 @@ function generateDiffString(
             const visibleLines = part.lines.slice(0, contextLines);
             const skippedLineCount = part.lines.length - visibleLines.length;
             for (const line of visibleLines) {
-                output.push(` ${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`);
+                output.push(
+                    ` ${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`,
+                );
                 oldLineNumber += 1;
                 newLineNumber += 1;
             }
@@ -811,14 +940,19 @@ function generateDiffString(
                 newLineNumber += skippedLineCount;
             }
         } else if (hasTrailingChange) {
-            const skippedLineCount = Math.max(0, part.lines.length - contextLines);
+            const skippedLineCount = Math.max(
+                0,
+                part.lines.length - contextLines,
+            );
             if (skippedLineCount > 0) {
                 output.push(` ${"".padStart(lineNumberWidth, " ")} ...`);
                 oldLineNumber += skippedLineCount;
                 newLineNumber += skippedLineCount;
             }
             for (const line of part.lines.slice(skippedLineCount)) {
-                output.push(` ${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`);
+                output.push(
+                    ` ${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`,
+                );
                 oldLineNumber += 1;
                 newLineNumber += 1;
             }
@@ -879,6 +1013,7 @@ async function executeHashlineRead(
     const rawContent = await readFile(absolutePath, "utf8");
     const normalizedContent = normalizeToLf(rawContent);
     const { lines: allLines } = splitNormalizedText(normalizedContent);
+    lastReadSnapshots.set(absolutePath, { lines: [...allLines] });
     const totalFileLines = allLines.length;
     const startLine = params.offset ? Math.max(0, params.offset - 1) : 0;
     const startLineDisplay = startLine + 1;
@@ -1007,8 +1142,11 @@ export default function hashlineToolOverride(pi: ExtensionAPI) {
                     const originalLines = originalText.lines;
 
                     const normalizedEdits = params.edits.map(normalizeEdit);
-                    validateAllAnchors(normalizedEdits, originalLines);
-
+                    validateAllAnchors(
+                        normalizedEdits,
+                        originalLines,
+                        lastReadSnapshots.get(absolutePath),
+                    );
                     const operations = normalizedEdits.map((edit) =>
                         toFileOperation(edit, originalLines.length),
                     );
