@@ -14,6 +14,8 @@ To load these into Pi, put them in `~/.pi/agent/extensions/`.
 
 **codemap** adds a deterministic `codemap` tool for repo and module analysis. Instead of relying only on freeform inspection, it runs a standardized stats pass that summarizes file layout, AST-level symbols, and import/export relationships, then truncates safely while preserving the full report in a temp file when needed.
 
+**hashline** replaces Pi’s built-in `read` and `edit` tools with a hashline protocol. Instead of depending on exact old-text matches, it returns text as `LINE#ID:content` and lets edits target those anchors directly, which is better for mixed-model use because stale edits fail fast and retry cleanly.
+
 **formatter-hook** runs `hooks/formatter.sh` when Pi shuts down inside a repo that contains that script. This is better than baking formatting logic into the extension because the shell script stays the single source of truth and the hook stays repo-local instead of affecting unrelated projects.
 
 **todo-list** gives Pi a lightweight session-backed todo list for short-lived task tracking. The reason it is better than a generic checklist is that the state lives with the Pi session and reconstructs from branch history, so it stays consistent when you resume, compact, or move around the conversation tree instead of drifting out of sync.
