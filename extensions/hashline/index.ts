@@ -30,13 +30,12 @@ import {
     withFileMutationQueue,
 } from "@mariozechner/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
-import { createPatch } from "diff";
 
 const HASHLINE_NIBBLE_ALPHABET = "ZPMQVRWSNKTXJBYH";
-const HASHLINE_TAG_LENGTH = 2;
+const HASHLINE_TAG_LENGTH = 3;
 const HASHLINE_TAG_RE = `[${HASHLINE_NIBBLE_ALPHABET}]{${HASHLINE_TAG_LENGTH}}`;
 const HASHLINE_DISPLAY_PREFIX_RE = new RegExp(
-    `^\\s*(?:>>>|>>)?\\s*\\d+\\s*#\\s*(${HASHLINE_TAG_RE}):(.*)$`,
+    `^\\s*(?:>>>|>>)?\\s*(\\d+)\\s*#\\s*(${HASHLINE_TAG_RE}):(.*)$`,
 );
 const HASHLINE_ANCHOR_RE = new RegExp(
     `^(?:[>+-]*\\s*)?(\\d+)\\s*#\\s*(${HASHLINE_TAG_RE})$`,
@@ -44,6 +43,7 @@ const HASHLINE_ANCHOR_RE = new RegExp(
 const SIGNIFICANT_RE = /[\p{L}\p{N}]/u;
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 const MISMATCH_CONTEXT = 2;
+const DIFF_CONTEXT_LINES = 4;
 
 const readSchema = Type.Object(
     {
@@ -87,7 +87,7 @@ const hashlineEditSchema = Type.Object(
                     pos: Type.Optional(
                         Type.String({
                             description:
-                                'Anchor from read output in LINE#ID form, e.g. "14#AB". Required for replace_line, append_at, prepend_at, and replace_range.',
+                                'Anchor from read output in LINE#ID form, e.g. "14#ABQ". Required for replace_line, append_at, prepend_at, and replace_range.',
                         }),
                     ),
                     end: Type.Optional(
@@ -177,10 +177,20 @@ type FileEditOperation =
       }
     | { kind: "insert"; point: number; lines: string[]; description: string };
 
+type DiffPart =
+    | { kind: "common"; lines: string[] }
+    | { kind: "removed"; lines: string[] }
+    | { kind: "added"; lines: string[] };
+
 type HashMismatch = {
     line: number;
     expected: string;
     actual: string;
+};
+
+type FileTextSnapshot = {
+    lines: string[];
+    hasTrailingNewline: boolean;
 };
 
 class HashlineMismatchError extends Error {
@@ -226,6 +236,20 @@ function restoreLineEndings(
     return text.replace(/\n/g, lineEnding);
 }
 
+function buildHashlineTagFromDigest(
+    digest: Uint8Array,
+    tagLength: number,
+): string {
+    let tag = "";
+    for (let nibbleIndex = 0; nibbleIndex < tagLength; nibbleIndex += 1) {
+        const byte = digest[Math.floor(nibbleIndex / 2)] ?? 0;
+        const nibble =
+            nibbleIndex % 2 === 0 ? byte >>> 4 : byte & 0x0f;
+        tag += HASHLINE_NIBBLE_ALPHABET[nibble] ?? HASHLINE_NIBBLE_ALPHABET[0];
+    }
+    return tag;
+}
+
 function computeLineHash(lineNumber: number, line: string): string {
     const normalizedLine = line.replace(/\r/g, "").trimEnd();
     const seed = SIGNIFICANT_RE.test(normalizedLine) ? "" : `${lineNumber}`;
@@ -234,10 +258,11 @@ function computeLineHash(lineNumber: number, line: string): string {
         .update("\0")
         .update(normalizedLine)
         .digest();
-    const byte = digest[0] ?? 0;
-    const hi = byte >>> 4;
-    const lo = byte & 0x0f;
-    return `${HASHLINE_NIBBLE_ALPHABET[hi]}${HASHLINE_NIBBLE_ALPHABET[lo]}`;
+    return buildHashlineTagFromDigest(digest, HASHLINE_TAG_LENGTH);
+}
+
+function formatAnchor(anchor: HashlineAnchor): string {
+    return `${anchor.line}#${anchor.hash}`;
 }
 
 function formatHashline(lineNumber: number, line: string): string {
@@ -250,25 +275,62 @@ function formatHashlineLines(lines: string[], startLine: number): string {
         .join("\n");
 }
 
-function textToFileLines(text: string): string[] {
-    if (text.length === 0) return [];
-    return text.split("\n");
+function splitNormalizedText(text: string): FileTextSnapshot {
+    if (text.length === 0) {
+        return { lines: [], hasTrailingNewline: false };
+    }
+
+    const hasTrailingNewline = text.endsWith("\n");
+    const lines = text.split("\n");
+    if (hasTrailingNewline) {
+        lines.pop();
+    }
+
+    return { lines, hasTrailingNewline };
 }
 
-function fileLinesToText(lines: string[]): string {
-    return lines.length === 0 ? "" : lines.join("\n");
+function joinNormalizedText(
+    lines: string[],
+    hasTrailingNewline: boolean,
+): string {
+    if (lines.length === 0) return "";
+
+    const text = lines.join("\n");
+    return hasTrailingNewline ? `${text}\n` : text;
 }
 
 function splitContentToLines(content: string): string[] {
     if (content.length === 0) return [];
-    return textToFileLines(normalizeToLf(content)).map(
-        stripAccidentalHashlinePrefix,
-    );
+    return splitNormalizedText(normalizeToLf(content)).lines;
 }
 
-function stripAccidentalHashlinePrefix(line: string): string {
+function parseRenderedHashlineLine(
+    line: string,
+): { ref: string; content: string } | undefined {
     const match = line.match(HASHLINE_DISPLAY_PREFIX_RE);
-    return match ? match[2] : line;
+    if (!match) {
+        return undefined;
+    }
+
+    const lineNumber = match[1];
+    const hash = match[2];
+    const content = match[3];
+    if (!lineNumber || !hash || content === undefined) {
+        return undefined;
+    }
+
+    return { ref: `${lineNumber}#${hash}`, content };
+}
+
+function stripAccidentalHashlinePrefix(
+    line: string,
+    validRefs: ReadonlySet<string>,
+): string {
+    const renderedHashline = parseRenderedHashlineLine(line);
+    if (!renderedHashline || !validRefs.has(renderedHashline.ref)) {
+        return line;
+    }
+    return renderedHashline.content;
 }
 
 function prepareHashlineEditArguments(args: unknown): HashlineEditInput {
@@ -287,9 +349,7 @@ function prepareHashlineEditArguments(args: unknown): HashlineEditInput {
         edits: input.edits.map((rawEdit) => {
             const edit = rawEdit as Record<string, unknown>;
             const lines = Array.isArray(edit.lines)
-                ? edit.lines.map((line) =>
-                      stripAccidentalHashlinePrefix(String(line)),
-                  )
+                ? edit.lines.map((line) => String(line))
                 : typeof edit.content === "string"
                   ? splitContentToLines(edit.content)
                   : [];
@@ -305,7 +365,7 @@ function parseAnchor(rawAnchor: string): HashlineAnchor {
     const match = rawAnchor.trim().toUpperCase().match(HASHLINE_ANCHOR_RE);
     if (!match) {
         throw new Error(
-            `Invalid anchor "${rawAnchor}". Expected LINE#ID, e.g. "14#AB".`,
+            `Invalid anchor "${rawAnchor}". Expected LINE#ID, e.g. "14#ABQ".`,
         );
     }
 
@@ -317,34 +377,53 @@ function parseAnchor(rawAnchor: string): HashlineAnchor {
     return { line, hash: match[2] };
 }
 
+function normalizeEditLines(
+    lines: string[],
+    anchors: HashlineAnchor[],
+): string[] {
+    if (anchors.length === 0) {
+        return lines;
+    }
+
+    const validRefs = new Set(anchors.map(formatAnchor));
+    return lines.map((line) => stripAccidentalHashlinePrefix(line, validRefs));
+}
+
 function normalizeEdit(
     edit: HashlineEditInput["edits"][number],
 ): NormalizedEdit {
-    const lines = Array.isArray(edit.lines)
-        ? edit.lines.map(stripAccidentalHashlinePrefix)
-        : [];
+    const rawLines = Array.isArray(edit.lines) ? edit.lines : [];
 
     switch (edit.op) {
         case "replace_line":
         case "append_at":
-        case "prepend_at":
+        case "prepend_at": {
             if (!edit.pos) {
                 throw new Error(`${edit.op} requires pos.`);
             }
-            return { op: edit.op, pos: parseAnchor(edit.pos), lines };
-        case "replace_range":
+            const pos = parseAnchor(edit.pos);
+            return {
+                op: edit.op,
+                pos,
+                lines: normalizeEditLines(rawLines, [pos]),
+            };
+        }
+        case "replace_range": {
             if (!edit.pos || !edit.end) {
                 throw new Error("replace_range requires both pos and end.");
             }
+            const pos = parseAnchor(edit.pos);
+            const end = parseAnchor(edit.end);
             return {
                 op: edit.op,
-                pos: parseAnchor(edit.pos),
-                end: parseAnchor(edit.end),
-                lines,
+                pos,
+                end,
+                lines: normalizeEditLines(rawLines, [pos, end]),
             };
+        }
         case "append_file":
         case "prepend_file":
-            return { op: edit.op, lines };
+            return { op: edit.op, lines: rawLines };
         default:
             throw new Error(
                 `Unsupported edit op: ${String((edit as { op?: unknown }).op)}`,
@@ -382,7 +461,7 @@ function validateAllAnchors(
 
     for (const edit of edits) {
         for (const anchor of getEditAnchors(edit)) {
-            const key = `${anchor.line}#${anchor.hash}`;
+            const key = formatAnchor(anchor);
             if (seen.has(key)) continue;
             seen.add(key);
 
@@ -568,18 +647,19 @@ function assertNonConflictingOperations(operations: FileEditOperation[]): void {
     }
 }
 
+function getOperationSortPoint(operation: FileEditOperation): number {
+    return operation.kind === "replace" ? operation.startLine : operation.point + 1;
+}
+
 function applyOperations(
     fileLines: string[],
     operations: FileEditOperation[],
 ): string[] {
     const updatedLines = [...fileLines];
-    const sortedOperations = [...operations].sort((left, right) => {
-        const leftPos =
-            left.kind === "replace" ? left.startLine : left.point + 1;
-        const rightPos =
-            right.kind === "replace" ? right.startLine : right.point + 1;
-        return rightPos - leftPos;
-    });
+    const sortedOperations = [...operations].sort(
+        (left, right) =>
+            getOperationSortPoint(right) - getOperationSortPoint(left),
+    );
 
     for (const operation of sortedOperations) {
         if (operation.kind === "replace") {
@@ -595,6 +675,162 @@ function applyOperations(
     }
 
     return updatedLines;
+}
+
+function buildDiffParts(
+    originalLines: string[],
+    operations: FileEditOperation[],
+): DiffPart[] {
+    const parts: DiffPart[] = [];
+    const sortedOperations = [...operations].sort(
+        (left, right) =>
+            getOperationSortPoint(left) - getOperationSortPoint(right),
+    );
+    let nextOriginalLine = 1;
+
+    for (const operation of sortedOperations) {
+        const changeStartLine = getOperationSortPoint(operation);
+        const unchangedLines = originalLines.slice(
+            nextOriginalLine - 1,
+            changeStartLine - 1,
+        );
+        if (unchangedLines.length > 0) {
+            parts.push({ kind: "common", lines: unchangedLines });
+        }
+
+        if (operation.kind === "replace") {
+            const removedLines = originalLines.slice(
+                operation.startLine - 1,
+                operation.endLine,
+            );
+            if (removedLines.length > 0) {
+                parts.push({ kind: "removed", lines: removedLines });
+            }
+            if (operation.lines.length > 0) {
+                parts.push({ kind: "added", lines: operation.lines });
+            }
+            nextOriginalLine = operation.endLine + 1;
+            continue;
+        }
+
+        if (operation.lines.length > 0) {
+            parts.push({ kind: "added", lines: operation.lines });
+        }
+        nextOriginalLine = operation.point + 1;
+    }
+
+    const trailingLines = originalLines.slice(nextOriginalLine - 1);
+    if (trailingLines.length > 0) {
+        parts.push({ kind: "common", lines: trailingLines });
+    }
+
+    return parts;
+}
+
+function generateDiffString(
+    originalLines: string[],
+    updatedLines: string[],
+    operations: FileEditOperation[],
+    contextLines = DIFF_CONTEXT_LINES,
+): string {
+    const parts = buildDiffParts(originalLines, operations);
+    const output: string[] = [];
+    const maxLineNumber = Math.max(originalLines.length, updatedLines.length, 1);
+    const lineNumberWidth = String(maxLineNumber).length;
+    let oldLineNumber = 1;
+    let newLineNumber = 1;
+    let lastPartWasChange = false;
+
+    for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
+        const part = parts[partIndex];
+
+        if (part.kind === "added") {
+            for (const line of part.lines) {
+                output.push(`+${String(newLineNumber).padStart(lineNumberWidth, " ")} ${line}`);
+                newLineNumber += 1;
+            }
+            lastPartWasChange = true;
+            continue;
+        }
+
+        if (part.kind === "removed") {
+            for (const line of part.lines) {
+                output.push(`-${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`);
+                oldLineNumber += 1;
+            }
+            lastPartWasChange = true;
+            continue;
+        }
+
+        const nextPart = parts[partIndex + 1];
+        const nextPartIsChange =
+            nextPart !== undefined && nextPart.kind !== "common";
+        const hasLeadingChange = lastPartWasChange;
+        const hasTrailingChange = nextPartIsChange;
+
+        if (hasLeadingChange && hasTrailingChange) {
+            if (part.lines.length <= contextLines * 2) {
+                for (const line of part.lines) {
+                    output.push(` ${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`);
+                    oldLineNumber += 1;
+                    newLineNumber += 1;
+                }
+            } else {
+                const leadingLines = part.lines.slice(0, contextLines);
+                const trailingLines = part.lines.slice(-contextLines);
+                const skippedLineCount =
+                    part.lines.length - leadingLines.length - trailingLines.length;
+
+                for (const line of leadingLines) {
+                    output.push(` ${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`);
+                    oldLineNumber += 1;
+                    newLineNumber += 1;
+                }
+
+                output.push(` ${"".padStart(lineNumberWidth, " ")} ...`);
+                oldLineNumber += skippedLineCount;
+                newLineNumber += skippedLineCount;
+
+                for (const line of trailingLines) {
+                    output.push(` ${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`);
+                    oldLineNumber += 1;
+                    newLineNumber += 1;
+                }
+            }
+        } else if (hasLeadingChange) {
+            const visibleLines = part.lines.slice(0, contextLines);
+            const skippedLineCount = part.lines.length - visibleLines.length;
+            for (const line of visibleLines) {
+                output.push(` ${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`);
+                oldLineNumber += 1;
+                newLineNumber += 1;
+            }
+            if (skippedLineCount > 0) {
+                output.push(` ${"".padStart(lineNumberWidth, " ")} ...`);
+                oldLineNumber += skippedLineCount;
+                newLineNumber += skippedLineCount;
+            }
+        } else if (hasTrailingChange) {
+            const skippedLineCount = Math.max(0, part.lines.length - contextLines);
+            if (skippedLineCount > 0) {
+                output.push(` ${"".padStart(lineNumberWidth, " ")} ...`);
+                oldLineNumber += skippedLineCount;
+                newLineNumber += skippedLineCount;
+            }
+            for (const line of part.lines.slice(skippedLineCount)) {
+                output.push(` ${String(oldLineNumber).padStart(lineNumberWidth, " ")} ${line}`);
+                oldLineNumber += 1;
+                newLineNumber += 1;
+            }
+        } else {
+            oldLineNumber += part.lines.length;
+            newLineNumber += part.lines.length;
+        }
+
+        lastPartWasChange = false;
+    }
+
+    return output.join("\n");
 }
 
 function findFirstChangedLine(
@@ -642,7 +878,7 @@ async function executeHashlineRead(
 
     const rawContent = await readFile(absolutePath, "utf8");
     const normalizedContent = normalizeToLf(rawContent);
-    const allLines = textToFileLines(normalizedContent);
+    const { lines: allLines } = splitNormalizedText(normalizedContent);
     const totalFileLines = allLines.length;
     const startLine = params.offset ? Math.max(0, params.offset - 1) : 0;
     const startLineDisplay = startLine + 1;
@@ -708,7 +944,7 @@ export default function hashlineToolOverride(pi: ExtensionAPI) {
             promptGuidelines: [
                 "Use read before any hashline edit so you have fresh LINE#ID anchors.",
                 "Keep the LINE#ID prefixes from read output when planning an edit, but do not include those prefixes inside inserted lines.",
-                `Read output uses the form LINE#ID:content, for example 41#AB:def hello().`,
+                `Read output uses the form LINE#ID:content, for example 41#ABQ:def hello().`,
             ],
             parameters: readParameters,
             async execute(
@@ -767,7 +1003,8 @@ export default function hashlineToolOverride(pi: ExtensionAPI) {
                     const { bom, text: withoutBom } = stripBom(rawContent);
                     const originalLineEnding = detectLineEnding(withoutBom);
                     const normalizedContent = normalizeToLf(withoutBom);
-                    const originalLines = textToFileLines(normalizedContent);
+                    const originalText = splitNormalizedText(normalizedContent);
+                    const originalLines = originalText.lines;
 
                     const normalizedEdits = params.edits.map(normalizeEdit);
                     validateAllAnchors(normalizedEdits, originalLines);
@@ -781,8 +1018,10 @@ export default function hashlineToolOverride(pi: ExtensionAPI) {
                         originalLines,
                         operations,
                     );
-                    const updatedNormalizedContent =
-                        fileLinesToText(updatedLines);
+                    const updatedNormalizedContent = joinNormalizedText(
+                        updatedLines,
+                        originalText.hasTrailingNewline,
+                    );
                     const finalContent =
                         bom +
                         restoreLineEndings(
@@ -794,13 +1033,14 @@ export default function hashlineToolOverride(pi: ExtensionAPI) {
                         await writeFile(absolutePath, finalContent, "utf8");
                     }
 
-                    const diff = createPatch(
-                        normalizedPath,
-                        normalizedContent,
-                        updatedNormalizedContent,
-                        "before",
-                        "after",
-                    );
+                    const diff =
+                        updatedNormalizedContent === normalizedContent
+                            ? ""
+                            : generateDiffString(
+                                  originalLines,
+                                  updatedLines,
+                                  operations,
+                              );
                     const details: EditToolDetails = {
                         diff,
                         firstChangedLine: findFirstChangedLine(

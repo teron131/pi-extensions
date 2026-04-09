@@ -23,8 +23,8 @@ If the file changed, the anchor hash changes too, so edits fail fast with update
   "edits": [
     {
       "op": "replace_range",
-      "pos": "12#AB",
-      "end": "15#QP",
+      "pos": "12#ABQ",
+      "end": "15#QPT",
       "lines": [
         "const value = 1;",
         "return value;"
