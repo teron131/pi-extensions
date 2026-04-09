@@ -361,6 +361,29 @@ async function captureToolDefinitions(
     }
 
     const captureApi = createCaptureApi(pi, definitions);
+
+    // Explicitly load known internal extensions that register tools
+    const knownExtensions = [
+        "./hashline/index.js",
+        "./todo-list/index.js",
+        "./question/index.js",
+        "./subagent/index.js",
+    ];
+    for (const extPath of knownExtensions) {
+        try {
+            const mod = await import(extPath);
+            if (typeof mod.default === "function") {
+                await (mod.default as (api: ExtensionAPI) => Promise<void>)(
+                    captureApi,
+                );
+            }
+        } catch (e) {
+            console.error(
+                `tools-tui failed to explicitly capture ${extPath}: ${e}`,
+            );
+        }
+    }
+
     const importedSources = new Set<string>();
     const toolInfos = pi.getAllTools() as ToolInfoLike[];
 
@@ -374,10 +397,16 @@ async function captureToolDefinitions(
         }
 
         importedSources.add(sourcePath);
-        const module = await import(pathToFileURL(sourcePath).href);
-        const factory = module.default;
-        if (typeof factory === "function") {
-            await factory(captureApi);
+        try {
+            const module = await import(pathToFileURL(sourcePath).href);
+            const factory = module.default;
+            if (typeof factory === "function") {
+                await factory(captureApi);
+            }
+        } catch (e) {
+            console.error(
+                `tools-tui failed to import tool source: ${sourcePath} - ${e}`,
+            );
         }
     }
 
