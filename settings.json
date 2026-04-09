@@ -1,7 +1,7 @@
 {
     "lastChangelogVersion": "0.66.1",
-    "defaultProvider": "opencode",
-    "defaultModel": "gemini-3-flash",
+    "defaultProvider": "openai-codex",
+    "defaultModel": "gpt-5.4",
     "enabledModels": [
         "openai-codex/gpt-5.4",
         "openai-codex/gpt-5.4-mini",
