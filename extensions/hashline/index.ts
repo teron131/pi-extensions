@@ -87,7 +87,7 @@ const hashlineEditSchema = Type.Object(
         edits: Type.Array(
             Type.Object(
                 {
-                    op: Type.Union(
+                    operation: Type.Union(
                         [
                             Type.Literal("replace_line"),
                             Type.Literal("replace_range"),
@@ -101,7 +101,7 @@ const hashlineEditSchema = Type.Object(
                                 "Edit operation. Use replace_* to replace existing lines, append/prepend_* to insert new lines around an anchor or the whole file.",
                         },
                     ),
-                    pos: Type.Optional(
+                    start: Type.Optional(
                         Type.String({
                             description:
                                 'Anchor from read output in LINE#ID form, e.g. "14#ABQ". Required for replace_line, append_at, prepend_at, and replace_range.',
@@ -155,26 +155,26 @@ type HashlineAnchor = {
 type HashlineEditInput = Static<typeof hashlineEditSchema>;
 
 type ReplaceLineEdit = {
-    op: "replace_line";
-    pos: HashlineAnchor;
+    operation: "replace_line";
+    start: HashlineAnchor;
     lines: string[];
 };
 
 type ReplaceRangeEdit = {
-    op: "replace_range";
-    pos: HashlineAnchor;
+    operation: "replace_range";
+    start: HashlineAnchor;
     end: HashlineAnchor;
     lines: string[];
 };
 
 type AnchoredInsertEdit = {
-    op: "append_at" | "prepend_at";
-    pos: HashlineAnchor;
+    operation: "append_at" | "prepend_at";
+    start: HashlineAnchor;
     lines: string[];
 };
 
 type FileInsertEdit = {
-    op: "append_file" | "prepend_file";
+    operation: "append_file" | "prepend_file";
     lines: string[];
 };
 
@@ -416,51 +416,51 @@ function normalizeEdit(
 ): NormalizedEdit {
     const rawLines = Array.isArray(edit.lines) ? edit.lines : [];
 
-    switch (edit.op) {
+    switch (edit.operation) {
         case "replace_line":
         case "append_at":
         case "prepend_at": {
-            if (!edit.pos) {
-                throw new Error(`${edit.op} requires pos.`);
+            if (!edit.start) {
+                throw new Error(`${edit.operation} requires start.`);
             }
-            const pos = parseAnchor(edit.pos);
+            const start = parseAnchor(edit.start);
             return {
-                op: edit.op,
-                pos,
-                lines: normalizeEditLines(rawLines, [pos]),
+                operation: edit.operation,
+                start,
+                lines: normalizeEditLines(rawLines, [start]),
             };
         }
         case "replace_range": {
-            if (!edit.pos || !edit.end) {
-                throw new Error("replace_range requires both pos and end.");
+            if (!edit.start || !edit.end) {
+                throw new Error("replace_range requires both start and end.");
             }
-            const pos = parseAnchor(edit.pos);
+            const start = parseAnchor(edit.start);
             const end = parseAnchor(edit.end);
             return {
-                op: edit.op,
-                pos,
+                operation: edit.operation,
+                start,
                 end,
-                lines: normalizeEditLines(rawLines, [pos, end]),
+                lines: normalizeEditLines(rawLines, [start, end]),
             };
         }
         case "append_file":
         case "prepend_file":
-            return { op: edit.op, lines: rawLines };
+            return { operation: edit.operation, lines: rawLines };
         default:
             throw new Error(
-                `Unsupported edit op: ${String((edit as { op?: unknown }).op)}`,
+                `Unsupported edit operation: ${String((edit as { operation?: unknown }).operation)}`,
             );
     }
 }
 
 function getEditAnchors(edit: NormalizedEdit): HashlineAnchor[] {
-    switch (edit.op) {
+    switch (edit.operation) {
         case "replace_line":
         case "append_at":
         case "prepend_at":
-            return [edit.pos];
+            return [edit.start];
         case "replace_range":
-            return [edit.pos, edit.end];
+            return [edit.start, edit.end];
         case "append_file":
         case "prepend_file":
             return [];
@@ -532,13 +532,13 @@ function getSnapshotRangeLines(
     }
 
     if (
-        getLineHashAt(snapshot.lines, edit.pos.line) !== edit.pos.hash ||
+        getLineHashAt(snapshot.lines, edit.start.line) !== edit.start.hash ||
         getLineHashAt(snapshot.lines, edit.end.line) !== edit.end.hash
     ) {
         return undefined;
     }
 
-    return snapshot.lines.slice(edit.pos.line - 1, edit.end.line);
+    return snapshot.lines.slice(edit.start.line - 1, edit.end.line);
 }
 
 function getSortedMismatches(
@@ -572,7 +572,7 @@ function validateAllAnchors(
             addAnchorMismatch(mismatchesByLine, anchor, fileLines);
         }
 
-        if (edit.op !== "replace_range") {
+        if (edit.operation !== "replace_range") {
             continue;
         }
 
@@ -582,11 +582,11 @@ function validateAllAnchors(
         }
 
         for (
-            let lineNumber = edit.pos.line;
+            let lineNumber = edit.start.line;
             lineNumber <= edit.end.line;
             lineNumber += 1
         ) {
-            const expectedLine = snapshotRangeLines[lineNumber - edit.pos.line];
+            const expectedLine = snapshotRangeLines[lineNumber - edit.start.line];
             if (expectedLine === undefined) {
                 continue;
             }
@@ -649,17 +649,17 @@ function toFileOperation(
     edit: NormalizedEdit,
     totalLines: number,
 ): FileEditOperation {
-    switch (edit.op) {
+    switch (edit.operation) {
         case "replace_line":
             return {
                 kind: "replace",
-                startLine: edit.pos.line,
-                endLine: edit.pos.line,
+                startLine: edit.start.line,
+                endLine: edit.start.line,
                 lines: edit.lines,
-                description: `replace_line@${edit.pos.line}`,
+                description: `replace_line@${edit.start.line}`,
             };
         case "replace_range": {
-            const startLine = edit.pos.line;
+            const startLine = edit.start.line;
             const endLine = edit.end.line;
             if (endLine < startLine) {
                 throw new Error(
@@ -677,16 +677,16 @@ function toFileOperation(
         case "append_at":
             return {
                 kind: "insert",
-                point: edit.pos.line,
+                point: edit.start.line,
                 lines: edit.lines,
-                description: `append_at@${edit.pos.line}`,
+                description: `append_at@${edit.start.line}`,
             };
         case "prepend_at":
             return {
                 kind: "insert",
-                point: edit.pos.line - 1,
+                point: edit.start.line - 1,
                 lines: edit.lines,
-                description: `prepend_at@${edit.pos.line}`,
+                description: `prepend_at@${edit.start.line}`,
             };
         case "append_file":
             return {
@@ -1127,7 +1127,7 @@ export default function hashlineToolOverride(pi: ExtensionAPI) {
                 "Edit a text file using hashline LINE#ID anchors from read",
             promptGuidelines: [
                 "Always call hashline_read before hashline_edit so you have fresh LINE#ID anchors.",
-                "Use the exact LINE#ID anchors returned by hashline_read in pos/end.",
+                "Use the exact LINE#ID anchors returned by hashline_read in start/end.",
                 "All edit anchors refer to the original file, not to the result of earlier edits in the same call.",
                 "If edit reports that lines changed since last hashline_read, call hashline_read again and retry with the updated anchors.",
                 "Do not include LINE#ID: prefixes inside lines[]. Only include the new text lines.",
