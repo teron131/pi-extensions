@@ -44,8 +44,6 @@ export interface TodoDetails {
 
 export interface TodoToolParams {
     action: TodoAction;
-    text?: string;
-    title?: string;
     note?: string;
     items?: TodoInput[];
     id?: number;
@@ -77,12 +75,6 @@ export const TODO_STATE_ENTRY = "todo-state";
 
 export const TodoParams = Type.Object({
     action: TodoActionSchema,
-    text: Type.Optional(
-        Type.String({ description: "Todo text (for single add)" }),
-    ),
-    title: Type.Optional(
-        Type.String({ description: "Todo title to remove using fuzzy match" }),
-    ),
     note: Type.Optional(
         Type.String({ description: "Optional note or update text" }),
     ),
@@ -101,13 +93,12 @@ export const TodoParams = Type.Object({
     ),
     id: Type.Optional(
         Type.Number({
-            description: "Internal todo ID (optional for toggle/note/remove)",
+            description: "Internal todo ID for toggle/note",
         }),
     ),
     position: Type.Optional(
         Type.Number({
-            description:
-                "Visible todo position (1-based) for toggle/note/remove",
+            description: "Visible todo position (1-based) for toggle/note",
         }),
     ),
     ids: Type.Optional(
@@ -189,126 +180,6 @@ export function getOrderedVisibleTodos(todos: Todo[]): Todo[] {
     return getOrderedTodos(getVisibleTodos(todos));
 }
 
-function normalizeTodoSearchText(text: string): string {
-    return text
-        .toLowerCase()
-        .trim()
-        .replace(/[^a-z0-9]+/gi, " ")
-        .replace(/\s+/g, " ");
-}
-
-function levenshteinDistance(left: string, right: string): number {
-    if (left === right) {
-        return 0;
-    }
-
-    if (!left.length) {
-        return right.length;
-    }
-
-    if (!right.length) {
-        return left.length;
-    }
-
-    let previousRow = Array.from(
-        { length: right.length + 1 },
-        (_, index) => index,
-    );
-    let currentRow = new Array<number>(right.length + 1).fill(0);
-
-    for (let leftIndex = 0; leftIndex < left.length; leftIndex++) {
-        currentRow[0] = leftIndex + 1;
-        for (let rightIndex = 0; rightIndex < right.length; rightIndex++) {
-            const substitutionCost =
-                left[leftIndex] === right[rightIndex] ? 0 : 1;
-            currentRow[rightIndex + 1] = Math.min(
-                previousRow[rightIndex + 1] + 1,
-                currentRow[rightIndex] + 1,
-                previousRow[rightIndex] + substitutionCost,
-            );
-        }
-
-        [previousRow, currentRow] = [currentRow, previousRow];
-    }
-
-    return previousRow[right.length];
-}
-
-function scoreTodoTitleMatch(todoTitle: string, query: string): number | null {
-    const normalizedTitle = normalizeTodoSearchText(todoTitle);
-    const normalizedQuery = normalizeTodoSearchText(query);
-
-    if (!normalizedTitle || !normalizedQuery) {
-        return null;
-    }
-
-    if (normalizedTitle === normalizedQuery) {
-        return 1;
-    }
-
-    const compactTitle = normalizedTitle.replace(/\s+/g, "");
-    const compactQuery = normalizedQuery.replace(/\s+/g, "");
-
-    if (compactTitle === compactQuery) {
-        return 1;
-    }
-
-    if (
-        compactTitle.startsWith(compactQuery) ||
-        compactQuery.startsWith(compactTitle)
-    ) {
-        return 0.95;
-    }
-
-    const titleTokens = normalizedTitle.split(" ");
-    const queryTokens = normalizedQuery.split(" ");
-    if (
-        queryTokens.every((queryToken) =>
-            titleTokens.some(
-                (titleToken) =>
-                    titleToken.startsWith(queryToken) ||
-                    queryToken.startsWith(titleToken),
-            ),
-        )
-    ) {
-        return 0.85;
-    }
-
-    const distance = levenshteinDistance(compactTitle, compactQuery);
-    const longest = Math.max(compactTitle.length, compactQuery.length);
-    return Math.max(0, 1 - distance / longest);
-}
-
-export function findTodoTargetByTitle(
-    todos: Todo[],
-    title: string,
-): { todo?: Todo; position?: number; error?: string } {
-    const visibleTodos = getOrderedVisibleTodos(todos);
-    let bestTodo: Todo | undefined;
-    let bestPosition: number | undefined;
-    let bestScore = 0;
-
-    for (const [index, todo] of visibleTodos.entries()) {
-        const score = scoreTodoTitleMatch(todo.text, title);
-        if (score === null || score <= bestScore) {
-            continue;
-        }
-
-        bestTodo = todo;
-        bestPosition = index + 1;
-        bestScore = score;
-    }
-
-    if (!bestTodo || bestScore < 0.5) {
-        return { error: `todo titled ${JSON.stringify(title)} not found` };
-    }
-
-    return {
-        todo: bestTodo,
-        position: bestPosition,
-    };
-}
-
 export function findTodoTarget(
     todos: Todo[],
     params: { id?: number; position?: number },
@@ -354,8 +225,6 @@ export function findTodoTarget(
 export function findTodoTargets(
     todos: Todo[],
     params: {
-        id?: number;
-        position?: number;
         ids?: number[];
         positions?: number[];
     },
@@ -370,30 +239,24 @@ export function findTodoTargets(
         targets.push({ todo, position });
     };
 
-    const positions = [
-        ...(params.positions ?? []),
-        ...(params.position !== undefined ? [params.position] : []),
-    ];
-    for (const pos of positions) {
+    for (const pos of params.positions ?? []) {
         if (pos < 1 || pos > visibleTodos.length) {
             return { error: `item ${pos} not found` };
         }
         addTarget(visibleTodos[pos - 1], pos);
     }
 
-    const ids = [
-        ...(params.ids ?? []),
-        ...(params.id !== undefined ? [params.id] : []),
-    ];
-    for (const id of ids) {
-        const todo = todos.find((c) => c.id === id);
+    for (const id of params.ids ?? []) {
+        const todo = todos.find((candidate) => candidate.id === id);
         if (!todo) return { error: `todo id ${id} not found` };
-        const visibleIdx = visibleTodos.findIndex((c) => c.id === todo.id);
+        const visibleIdx = visibleTodos.findIndex(
+            (candidate) => candidate.id === todo.id,
+        );
         addTarget(todo, visibleIdx >= 0 ? visibleIdx + 1 : undefined);
     }
 
     if (!targets.length) {
-        return { error: "id, ids, position, or positions required" };
+        return { error: "ids or positions required" };
     }
     return { targets };
 }

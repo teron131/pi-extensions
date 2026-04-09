@@ -18,7 +18,6 @@ import {
     clearTodos,
     cloneTodos,
     findTodoTarget,
-    findTodoTargetByTitle,
     findTodoTargets,
     formatAddedTodoMessage,
     formatRemovedTodoMessage,
@@ -40,7 +39,6 @@ import {
     TODO_WIDGET_TOGGLE_SHORTCUT,
     type Todo,
     type TodoDetails,
-    type TodoInput,
     TodoParams,
     type TodoToolParams,
 } from "./state.js";
@@ -151,7 +149,7 @@ export default function todolist(pi: ExtensionAPI): void {
         name: "todo",
         label: "Todo",
         description:
-            "Manage a lightweight todo list for short-lived self-guidance, not a permanent log. Keep it small and current, avoid logging every micro-step, and reset when the task direction changes. Completed items drop out of the visible list while work continues, but stay in memory so progress can still be tracked. If all todos are completed, adding a new todo automatically restarts the list at #1. Use position for visible ordering, or id if needed. Actions: list, add (text or items), toggle (id/position), note (id/position, note), remove (title/text fuzzy match, or id/ids/position/positions), clear/reset",
+            "Manage a lightweight todo list for short-lived self-guidance, not a permanent log. Keep it small and current, avoid logging every micro-step, and reset when the task direction changes. Completed items drop out of the visible list while work continues, but stay in memory so progress can still be tracked. If all todos are completed, adding a new todo automatically restarts the list at #1. Use position for visible ordering, or id if needed. Actions: list, add (items), toggle (id/position), note (id/position, note), remove (ids/positions), clear/reset",
         parameters: TodoParams as never,
 
         async execute(
@@ -215,12 +213,7 @@ export default function todolist(pi: ExtensionAPI): void {
                 }
 
                 case "add": {
-                    const itemInputs: TodoInput[] = params.items?.length
-                        ? params.items
-                        : params.text
-                          ? [{ text: params.text, note: params.note }]
-                          : [];
-                    const items = itemInputs
+                    const items = (params.items ?? [])
                         .map((item) => ({
                             text: item.text.trim(),
                             note: item.note?.trim() || undefined,
@@ -228,10 +221,7 @@ export default function todolist(pi: ExtensionAPI): void {
                         .filter((item) => item.text.length > 0);
 
                     if (!items.length) {
-                        return buildErrorResult(
-                            "add",
-                            "text or items required",
-                        );
+                        return buildErrorResult("add", "items required");
                     }
 
                     const restartedFromCompletedList =
@@ -263,42 +253,20 @@ export default function todolist(pi: ExtensionAPI): void {
                 }
 
                 case "remove": {
-                    const title = params.title?.trim() || params.text?.trim();
-                    if (title) {
-                        const result = findTodoTargetByTitle(
-                            currentTodos,
-                            title,
+                    if (
+                        params.id !== undefined ||
+                        params.position !== undefined
+                    ) {
+                        return buildErrorResult(
+                            "remove",
+                            "use ids or positions arrays for remove",
                         );
-                        if (result.error || !result.todo) {
-                            return buildErrorResult(
-                                "remove",
-                                result.error ?? "item not found",
-                            );
-                        }
-
-                        const matchedTodo = result.todo;
-                        commitTodos(
-                            currentTodos.filter(
-                                (todo) => todo.id !== matchedTodo.id,
-                            ),
-                        );
-                        return {
-                            content: [
-                                {
-                                    type: "text",
-                                    text: formatRemovedTodoMessage([
-                                        {
-                                            todo: matchedTodo,
-                                            position: result.position,
-                                        },
-                                    ]),
-                                },
-                            ],
-                            details: buildDetails("remove"),
-                        };
                     }
 
-                    const result = findTodoTargets(currentTodos, params);
+                    const result = findTodoTargets(currentTodos, {
+                        ids: params.ids,
+                        positions: params.positions,
+                    });
                     if (result.error || !result.targets?.length) {
                         return buildErrorResult(
                             "remove",
@@ -420,8 +388,6 @@ export default function todolist(pi: ExtensionAPI): void {
                 theme.fg("muted", args.action);
             if (args.items?.length) {
                 text += ` ${theme.fg("dim", `${args.items.length} items`)}`;
-            } else if (args.text) {
-                text += ` ${theme.fg("dim", `"${args.text}"`)}`;
             }
             if (args.positions?.length) {
                 text += ` ${theme.fg("accent", `${args.positions.length} positions`)}`;
