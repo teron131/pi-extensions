@@ -2,8 +2,8 @@
  * Hashline Tool Override
  *
  * Replaces Pi's built-in `read` and `edit` tools with a hashline protocol:
- * - `read` returns text lines as `LINE#ID:content`
- * - `edit` accepts `LINE#ID` anchors instead of exact old-text matches
+ * - `hashline_read` returns text lines as `LINE#ID:content`
+ * - `hashline_edit` accepts `LINE#ID` anchors instead of exact old-text matches
  *
  * Images still delegate to the built-in read implementation.
  */
@@ -46,6 +46,23 @@ const MISMATCH_CONTEXT = 2;
 const DIFF_CONTEXT_LINES = 4;
 
 const readSchema = Type.Object(
+    {
+        path: Type.String({
+            description: "Path to the file to read (relative or absolute)",
+        }),
+        offset: Type.Optional(
+            Type.Number({
+                description: "Line number to start reading from (1-indexed)",
+            }),
+        ),
+        limit: Type.Optional(
+            Type.Number({ description: "Maximum number of lines to read" }),
+        ),
+    },
+    { additionalProperties: false },
+);
+
+const hashlineReadSchema = Type.Object(
     {
         path: Type.String({
             description: "Path to the file to read (relative or absolute)",
@@ -1071,14 +1088,14 @@ async function executeHashlineRead(
 export default function hashlineToolOverride(pi: ExtensionAPI) {
     pi.registerTool(
         defineTool({
-            name: "read",
-            label: "read",
-            description: `Read file contents. Text files are returned with hashline anchors in the form LINE#ID:content so later edits can target exact lines without reproducing old text. Supports the same path/offset/limit arguments as the built-in read tool. Images still behave like the built-in read tool.`,
+            name: "hashline_read",
+            label: "hashline_read",
+            description: `Read file contents with unique LINE#ID anchors. Use this if you predict you will likely edit the file, as \`hashline_edit\` requires these anchors. If you are just exploring, prefer the standard \`read\` tool. Supports the same path/offset/limit arguments as the built-in read tool. Images still behave like the built-in read tool.`,
             promptSnippet:
                 "Read file contents with hashline anchors for later edits",
             promptGuidelines: [
-                "Use read before any hashline edit so you have fresh LINE#ID anchors.",
-                "Keep the LINE#ID prefixes from read output when planning an edit, but do not include those prefixes inside inserted lines.",
+                "Use hashline_read before any hashline_edit so you have fresh LINE#ID anchors.",
+                "Keep the LINE#ID prefixes from hashline_read output when planning an edit, but do not include those prefixes inside inserted lines.",
                 `Read output uses the form LINE#ID:content, for example 41#ABQ:def hello().`,
             ],
             parameters: readParameters,
@@ -1102,17 +1119,17 @@ export default function hashlineToolOverride(pi: ExtensionAPI) {
 
     pi.registerTool(
         defineTool({
-            name: "edit",
-            label: "edit",
+            name: "hashline_edit",
+            label: "hashline_edit",
             description:
-                "Edit a single text file using hashline anchors from read. Each edit references current lines with LINE#ID anchors, so stale anchors fail fast instead of relying on exact old-text matching.",
+                "Safely edit a file. Requires exact LINE#ID anchors obtained from a fresh `hashline_read` call. Each edit references current lines with LINE#ID anchors, so stale anchors fail fast instead of relying on exact old-text matching.",
             promptSnippet:
                 "Edit a text file using hashline LINE#ID anchors from read",
             promptGuidelines: [
-                "Always call read before edit so you have fresh LINE#ID anchors.",
-                "Use the exact LINE#ID anchors returned by read in pos/end.",
+                "Always call hashline_read before hashline_edit so you have fresh LINE#ID anchors.",
+                "Use the exact LINE#ID anchors returned by hashline_read in pos/end.",
                 "All edit anchors refer to the original file, not to the result of earlier edits in the same call.",
-                "If edit reports that lines changed since last read, call read again and retry with the updated anchors.",
+                "If edit reports that lines changed since last hashline_read, call hashline_read again and retry with the updated anchors.",
                 "Do not include LINE#ID: prefixes inside lines[]. Only include the new text lines.",
             ],
             parameters: hashlineEditParameters,
