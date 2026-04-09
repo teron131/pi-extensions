@@ -1,14 +1,10 @@
 {
     "lastChangelogVersion": "0.66.0",
     "defaultProvider": "openai-codex",
-    "defaultModel": "gpt-5.4-mini",
+    "defaultModel": "gpt-5.4",
     "enabledModels": [
         "openai-codex/gpt-5.4",
         "openai-codex/gpt-5.4-mini",
-        "opencode-go/glm-5",
-        "opencode-go/kimi-k2.5",
-        "opencode-go/minimax-m2.7",
-        "opencode-go/mimo-v2-pro",
         "opencode/claude-opus-4-6",
         "opencode/claude-sonnet-4-6",
         "opencode/gemini-3-flash",
