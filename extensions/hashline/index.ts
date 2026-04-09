@@ -45,23 +45,6 @@ const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 const MISMATCH_CONTEXT = 2;
 const DIFF_CONTEXT_LINES = 4;
 
-const readSchema = Type.Object(
-    {
-        path: Type.String({
-            description: "Path to the file to read (relative or absolute)",
-        }),
-        offset: Type.Optional(
-            Type.Number({
-                description: "Line number to start reading from (1-indexed)",
-            }),
-        ),
-        limit: Type.Optional(
-            Type.Number({ description: "Maximum number of lines to read" }),
-        ),
-    },
-    { additionalProperties: false },
-);
-
 const hashlineReadSchema = Type.Object(
     {
         path: Type.String({
@@ -143,7 +126,7 @@ type BuiltInReadTool = ReturnType<typeof createReadToolDefinition>;
 type ReadUpdateCallback = Parameters<BuiltInReadTool["execute"]>[3];
 
 const readParameters =
-    readSchema as unknown as RegisteredToolDefinition["parameters"];
+    hashlineReadSchema as unknown as RegisteredToolDefinition["parameters"];
 const hashlineEditParameters =
     hashlineEditSchema as unknown as RegisteredToolDefinition["parameters"];
 
@@ -586,7 +569,8 @@ function validateAllAnchors(
             lineNumber <= edit.end.line;
             lineNumber += 1
         ) {
-            const expectedLine = snapshotRangeLines[lineNumber - edit.start.line];
+            const expectedLine =
+                snapshotRangeLines[lineNumber - edit.start.line];
             if (expectedLine === undefined) {
                 continue;
             }
