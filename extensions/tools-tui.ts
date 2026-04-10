@@ -24,6 +24,7 @@ import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type {
     ExtensionAPI,
+    Theme,
     ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import {
@@ -35,7 +36,7 @@ import {
     createReadTool,
     createWriteTool,
 } from "@mariozechner/pi-coding-agent";
-import { Key, matchesKey, Text } from "@mariozechner/pi-tui";
+import { Key, matchesKey, Text, truncateToWidth } from "@mariozechner/pi-tui";
 import {
     getPreviewMode,
     modeLabel,
@@ -60,6 +61,11 @@ type ToolInfoLike = {
 
 type CaptureEventName = "session_start" | "session_tree" | "before_agent_start";
 
+type SessionWidget = {
+    render(width: number): string[];
+    invalidate(): void;
+};
+
 type SessionUi = {
     onTerminalInput(
         handler: (
@@ -67,6 +73,13 @@ type SessionUi = {
         ) => { consume?: boolean; data?: string } | undefined,
     ): () => void;
     setStatus(key: string, text: string | undefined): void;
+    setWidget(
+        key: string,
+        widget:
+            | ((tui: { requestRender(): void }, theme: Theme) => SessionWidget)
+            | undefined,
+        options?: { placement?: "aboveEditor" | "belowEditor" },
+    ): void;
     setToolsExpanded(expanded: boolean): void;
     notify(message: string, type?: "info" | "warning" | "error"): void;
 };
@@ -85,6 +98,7 @@ type SessionContextLike = {
 };
 
 const STATE_CUSTOM_TYPE = "tools-tui-state";
+const TOOLS_WIDGET_ID = "tools-tui";
 const TOOLS_TUI_SOURCE_PATH = resolve(fileURLToPath(import.meta.url));
 let terminalInputUnsubscribe: (() => void) | undefined;
 let isRegisteringWrappedTools = false;
@@ -353,10 +367,31 @@ function getSavedMode(ctx: SessionContextLike): PreviewMode | undefined {
     return;
 }
 
-function syncUiState(ui: SessionUi): void {
+function renderToolsWidgetLine(theme: Theme, width: number): string {
+    const line =
+        theme.fg("accent", theme.bold("🔧 Tools")) +
+        theme.fg("muted", ` ${modeLabel(getPreviewMode())}`) +
+        " " +
+        theme.fg("dim", "(Ctrl+O)");
+    return truncateToWidth(line, width);
+}
+
+function syncUiState(ctx: SessionContextLike): void {
     const mode = getPreviewMode();
-    ui.setStatus("tools-tui", `Tool preview: ${modeLabel(mode)}`);
-    ui.setToolsExpanded(mode !== "compact");
+    ctx.ui.setStatus(TOOLS_WIDGET_ID, undefined);
+    ctx.ui.setToolsExpanded(mode !== "compact");
+
+    if (!ctx.hasUI) {
+        ctx.ui.setWidget(TOOLS_WIDGET_ID, undefined);
+        return;
+    }
+
+    ctx.ui.setWidget(TOOLS_WIDGET_ID, (_tui, theme) => ({
+        render(width: number): string[] {
+            return [renderToolsWidgetLine(theme, width)];
+        },
+        invalidate() {},
+    }));
 }
 
 function persistMode(pi: ExtensionAPI): void {
@@ -370,22 +405,19 @@ function applyMode(
     options?: { persist?: boolean; announce?: boolean },
 ): void {
     if (getPreviewMode() === mode) {
-        syncUiState(ctx.ui);
+        syncUiState(ctx);
         return;
     }
 
     setPreviewMode(mode);
-    syncUiState(ctx.ui);
+    syncUiState(ctx);
 
     if (options?.persist !== false) {
         persistMode(pi);
     }
 
     if (options?.announce) {
-        ctx.ui.notify(
-            `Tool preview mode: ${modeLabel(getPreviewMode())}`,
-            "info",
-        );
+        ctx.ui.notify(`Tools: ${modeLabel(getPreviewMode())}`, "info");
     }
 }
 
@@ -439,7 +471,7 @@ export default async function toolsTuiExtension(pi: ExtensionAPI) {
     pi.on("session_start", async (_event, ctx) => {
         const savedMode = getSavedMode(ctx) ?? "preview";
         setPreviewMode(savedMode);
-        syncUiState(ctx.ui);
+        syncUiState(ctx);
         installTerminalListener(pi, ctx);
         await registerWrappedTools(pi, ctx, "session_start");
     });
@@ -447,7 +479,7 @@ export default async function toolsTuiExtension(pi: ExtensionAPI) {
     pi.on("session_tree", async (_event, ctx) => {
         const savedMode = getSavedMode(ctx) ?? "preview";
         setPreviewMode(savedMode);
-        syncUiState(ctx.ui);
+        syncUiState(ctx);
         installTerminalListener(pi, ctx);
         await registerWrappedTools(pi, ctx, "session_tree");
     });

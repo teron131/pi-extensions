@@ -105,12 +105,12 @@ export function getFooterMetricParts(options: FooterMetricsOptions): string[] {
     const cacheRead = options.cacheRead ?? 0;
     const totalInput = options.input + cacheRead;
     const output = options.output;
-    parts.push(`⬆️  ${formatTokens(totalInput)}`);
-    parts.push(`⬇️  ${formatTokens(output)}`);
+    parts.push(`▲${formatTokens(totalInput)}`);
+    parts.push(`▼${formatTokens(output)}`);
 
     if (cacheRead || options.showZeroCache) {
         const cacheShare = formatPercent(cacheRead, totalInput) || "0%";
-        parts.push(`💾 ${cacheShare}`);
+        parts.push(`💾${cacheShare}`);
     }
 
     const contextText =
@@ -120,12 +120,12 @@ export function getFooterMetricParts(options: FooterMetricsOptions): string[] {
             : options.showZeroContext && options.contextTokens !== undefined
               ? formatTokens(options.contextTokens)
               : null);
-    if (contextText !== null) parts.push(`📐 ${contextText}`);
+    if (contextText !== null) parts.push(`📐${contextText}`);
 
     const cost = options.cost ?? 0;
-    parts.push(`💸 $${cost.toFixed(3)}`);
+    parts.push(`💸$${cost.toFixed(3)}`);
     if (options.count !== undefined && `${options.count}`.length > 0) {
-        parts.push(`💬 ${options.count}`);
+        parts.push(`💬${options.count}`);
     }
 
     return parts;
@@ -133,6 +133,15 @@ export function getFooterMetricParts(options: FooterMetricsOptions): string[] {
 
 export function formatFooterMetrics(options: FooterMetricsOptions): string {
     return getFooterMetricParts(options).join("  ");
+}
+
+function normalizeFooterStatus(text: string, maxWidth = 28): string {
+    const compact = text
+        .replace(/[[\]():]+/g, " ")
+        .replace(/[\r\n\t]/g, " ")
+        .replace(/ +/g, " ")
+        .trim();
+    return truncateToWidth(compact, maxWidth);
 }
 
 function layoutFooterLine(
@@ -411,8 +420,8 @@ export default function (pi: ExtensionAPI) {
 
                     // --- TOP LINE (Model & Session) ---
                     let modelSide = ctx.model
-                        ? `🤖 ${ctx.model.id}`
-                        : "🤖 no-model";
+                        ? `🤖${ctx.model.id}`
+                        : "🤖no-model";
                     if (
                         footerData.getAvailableProviderCount() > 1 &&
                         ctx.model
@@ -467,14 +476,14 @@ export default function (pi: ExtensionAPI) {
                     if (ctx.model?.reasoning) {
                         modelSide +=
                             currentThinkingLevel === "off"
-                                ? ` 🧠 off`
-                                : ` 🧠 ${currentThinkingLevel}`;
+                                ? `  🧠off`
+                                : `  🧠${currentThinkingLevel}`;
                     }
 
                     const systemPrompt = ctx.getSystemPrompt();
                     const systemPromptSide = theme.fg(
                         "dim",
-                        `📝 ${systemPrompt.length}`,
+                        `📝${systemPrompt.length}`,
                     );
 
                     let sessionSide = "";
@@ -520,12 +529,12 @@ export default function (pi: ExtensionAPI) {
 
                     const timeStr = theme.fg(
                         "dim",
-                        `⏳ ${formatRunTime(currentRunTimeMs)}`,
+                        `⏳${formatRunTime(currentRunTimeMs)}`,
                     );
                     const sessionParts = [systemPromptSide, timeStr];
                     if (gitDiffCounts) {
                         sessionParts.unshift(
-                            formatDiffSummary(theme, gitDiffCounts),
+                            formatDiffSummary(theme, gitDiffCounts, " "),
                         );
                     }
                     sessionSide = sessionParts.join(theme.fg("dim", "  "));
@@ -563,13 +572,9 @@ export default function (pi: ExtensionAPI) {
                     if (extensionStatuses.size > 0) {
                         statusSide = Array.from(extensionStatuses.entries())
                             .sort(([a], [b]) => a.localeCompare(b))
-                            .map(([, text]) =>
-                                text
-                                    .replace(/[\r\n\t]/g, " ")
-                                    .replace(/ +/g, " ")
-                                    .trim(),
-                            )
-                            .join(" ");
+                            .map(([, text]) => normalizeFooterStatus(text))
+                            .filter(Boolean)
+                            .join(theme.fg("dim", " • "));
                     }
 
                     return renderFooterBlockLines(width, {
