@@ -19,7 +19,7 @@
 
 import { stat } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type {
     ExtensionAPI,
     ToolDefinition,
@@ -83,7 +83,9 @@ type SessionContextLike = {
 };
 
 const STATE_CUSTOM_TYPE = "tools-tui-state";
+const TOOLS_TUI_SOURCE_PATH = resolve(fileURLToPath(import.meta.url));
 let terminalInputUnsubscribe: (() => void) | undefined;
+let isRegisteringWrappedTools = false;
 
 function hasTruncation(details: unknown): boolean {
     if (!details || typeof details !== "object") {
@@ -233,6 +235,9 @@ async function captureToolDefinitions(
         if (!sourcePath || importedSources.has(sourcePath)) {
             continue;
         }
+        if (resolve(sourcePath) === TOOLS_TUI_SOURCE_PATH) {
+            continue;
+        }
         if (!(await fileExists(sourcePath))) {
             continue;
         }
@@ -269,49 +274,66 @@ async function registerWrappedTools(
     ctx: SessionContextLike,
     eventName: CaptureEventName,
 ): Promise<void> {
-    const capturedTools = await captureToolDefinitions(pi, ctx, eventName);
-    for (const tool of capturedTools.values()) {
-        pi.registerTool({
-            ...tool,
-            async execute(toolCallId, params, signal, onUpdate, ctx) {
-                return tool.execute.call(
-                    tool,
-                    toolCallId,
-                    params,
-                    signal,
-                    onUpdate,
-                    ctx,
-                );
-            },
-            renderCall(args, theme) {
-                return renderCallPreview(tool.label ?? tool.name, args, theme);
-            },
-            renderResult(result, options, theme, context) {
-                if (options.isPartial) {
-                    return new Text(theme.fg("warning", "Running..."), 0, 0);
-                }
+    if (isRegisteringWrappedTools) {
+        return;
+    }
 
-                const mode = getPreviewMode();
-                if (mode === "full" && tool.renderResult) {
-                    return tool.renderResult(
-                        result,
-                        { ...options, expanded: true },
-                        theme,
-                        context,
+    isRegisteringWrappedTools = true;
+    try {
+        const capturedTools = await captureToolDefinitions(pi, ctx, eventName);
+        for (const tool of capturedTools.values()) {
+            pi.registerTool({
+                ...tool,
+                async execute(toolCallId, params, signal, onUpdate, ctx) {
+                    return tool.execute.call(
+                        tool,
+                        toolCallId,
+                        params,
+                        signal,
+                        onUpdate,
+                        ctx,
                     );
-                }
-                return new Text(
-                    renderResultPreview(
-                        result as ToolResultLike,
+                },
+                renderCall(args, theme) {
+                    return renderCallPreview(
+                        tool.label ?? tool.name,
+                        args,
                         theme,
-                        mode,
-                        hasTruncation((result as ToolResultLike).details),
-                    ),
-                    0,
-                    0,
-                );
-            },
-        });
+                    );
+                },
+                renderResult(result, options, theme, context) {
+                    if (options.isPartial) {
+                        return new Text(
+                            theme.fg("warning", "Running..."),
+                            0,
+                            0,
+                        );
+                    }
+
+                    const mode = getPreviewMode();
+                    if (mode === "full" && tool.renderResult) {
+                        return tool.renderResult(
+                            result,
+                            { ...options, expanded: true },
+                            theme,
+                            context,
+                        );
+                    }
+                    return new Text(
+                        renderResultPreview(
+                            result as ToolResultLike,
+                            theme,
+                            mode,
+                            hasTruncation((result as ToolResultLike).details),
+                        ),
+                        0,
+                        0,
+                    );
+                },
+            });
+        }
+    } finally {
+        isRegisteringWrappedTools = false;
     }
 }
 
