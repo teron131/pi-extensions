@@ -296,6 +296,8 @@ async function getGitDiffCounts(cwd: string): Promise<GitDiffCounts | null> {
 export default function (pi: ExtensionAPI) {
     const seenMessageIds = new Set<string>();
     const sessionRunTimes = new Map<string, number>();
+    const fileMutationToolNames = new Set(["edit", "write", "hashline_edit"]);
+    let requestGitDiffRefresh: (() => void) | null = null;
     let sessionInput = 0;
     let sessionOutput = 0;
     let sessionCacheRead = 0;
@@ -341,6 +343,10 @@ export default function (pi: ExtensionAPI) {
                 }
             };
 
+            requestGitDiffRefresh = () => {
+                void refreshGitDiffCounts();
+            };
+
             void refreshGitDiffCounts();
             const unsubscribeBranch = footerData.onBranchChange(() => {
                 tui.requestRender();
@@ -361,6 +367,7 @@ export default function (pi: ExtensionAPI) {
 
             return {
                 dispose: () => {
+                    requestGitDiffRefresh = null;
                     unsubscribeBranch();
                     clearInterval(interval);
                     clearInterval(gitDiffInterval);
@@ -592,5 +599,13 @@ export default function (pi: ExtensionAPI) {
     pi.on("agent_end", () => {
         agentRunning = false;
         agentMessageBaseline = 0;
+    });
+
+    pi.on("tool_result", async (event) => {
+        if (!fileMutationToolNames.has(event.toolName)) {
+            return;
+        }
+
+        requestGitDiffRefresh?.();
     });
 }
