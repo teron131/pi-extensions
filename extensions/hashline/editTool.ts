@@ -7,49 +7,52 @@ import type {
     ExtensionAPI,
     ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { defineTool, withFileMutationQueue } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
-
 import {
-    createTextToolResult,
-    computeLineHash,
-    detectLineEnding,
-    DIFF_CONTEXT_LINES,
-    formatAnchor,
-    HASHLINE_ANCHOR_RE,
-    HASHLINE_DISPLAY_PREFIX_RE,
-    hashlineEditParameters,
-    HashlineAnchor,
-    HashlineEditInput,
-    HashlineMismatchError,
-    joinNormalizedText,
-    lastReadSnapshots,
-    normalizeToolPath,
-    normalizeToLf,
-    resolveToolPath,
-    restoreLineEndings,
-    splitContentToLines,
-    splitNormalizedText,
-    stripBom,
-    type DiffPart,
-    type FileEditOperation,
-    type HashMismatch,
-    type NormalizedEdit,
-    type ReadSnapshot,
-    type ReplaceRangeEdit,
-    type ReadUpdateCallback,
-} from "./shared.js";
+    defineTool,
+    withFileMutationQueue,
+} from "@mariozechner/pi-coding-agent";
+import { Text } from "@mariozechner/pi-tui";
 import {
     getPreviewMode,
     renderCallPreview,
     renderResultPreview,
     type ToolResultLike,
-} from "../tool-preview.js";
+} from "../tools-preview.js";
+import {
+    computeLineHash,
+    createTextToolResult,
+    DIFF_CONTEXT_LINES,
+    type DiffPart,
+    detectLineEnding,
+    type FileEditOperation,
+    formatAnchor,
+    HASHLINE_ANCHOR_RE,
+    HASHLINE_DISPLAY_PREFIX_RE,
+    type HashlineAnchor,
+    type HashlineEditInput,
+    HashlineMismatchError,
+    type HashMismatch,
+    hashlineEditParameters,
+    joinNormalizedText,
+    lastReadSnapshots,
+    type NormalizedEdit,
+    normalizeToLf,
+    normalizeToolPath,
+    type ReadSnapshot,
+    type ReadUpdateCallback,
+    type ReplaceRangeEdit,
+    resolveToolPath,
+    restoreLineEndings,
+    splitContentToLines,
+    splitNormalizedText,
+    stripBom,
+} from "./shared.js";
 
 function parseRenderedHashlineLine(
     line: string,
 ): { anchor: string; content: string } | undefined {
-    const [, lineNumber, hash, content] = line.match(HASHLINE_DISPLAY_PREFIX_RE) ?? [];
+    const [, lineNumber, hash, content] =
+        line.match(HASHLINE_DISPLAY_PREFIX_RE) ?? [];
     if (!lineNumber || !hash || content === undefined) {
         return undefined;
     }
@@ -123,7 +126,9 @@ function normalizeEditLines(
     }
 
     const validAnchors = new Set(anchors.map(formatAnchor));
-    return lines.map((line) => stripAccidentalHashlinePrefix(line, validAnchors));
+    return lines.map((line) =>
+        stripAccidentalHashlinePrefix(line, validAnchors),
+    );
 }
 
 function normalizeEdit(
@@ -222,7 +227,6 @@ function getSnapshotRangeLines(
     return snapshot.lines.slice(edit.start.line - 1, edit.end.line);
 }
 
-
 function addAnchorMismatches(
     edit: NormalizedEdit,
     mismatchesByLine: Map<number, HashMismatch>,
@@ -259,9 +263,12 @@ function addRangeMismatches(
         return;
     }
 
-    for (let lineNumber = edit.start.line; lineNumber <= edit.end.line; lineNumber += 1) {
-        const expectedLine =
-            snapshotRangeLines[lineNumber - edit.start.line];
+    for (
+        let lineNumber = edit.start.line;
+        lineNumber <= edit.end.line;
+        lineNumber += 1
+    ) {
+        const expectedLine = snapshotRangeLines[lineNumber - edit.start.line];
         if (expectedLine === undefined) {
             continue;
         }
@@ -467,7 +474,8 @@ function buildDiffParts(
 ): DiffPart[] {
     const parts: DiffPart[] = [];
     const sortedOperations = [...operations].sort(
-        (left, right) => getOperationSortPoint(left) - getOperationSortPoint(right),
+        (left, right) =>
+            getOperationSortPoint(left) - getOperationSortPoint(right),
     );
     let nextOriginalLine = 1;
 
@@ -619,7 +627,9 @@ function generateDiffString(
                 const leadingLines = part.lines.slice(0, contextLines);
                 const trailingLines = part.lines.slice(-contextLines);
                 const skippedLineCount =
-                    part.lines.length - leadingLines.length - trailingLines.length;
+                    part.lines.length -
+                    leadingLines.length -
+                    trailingLines.length;
 
                 [oldLineNumber, newLineNumber] = appendCommonDiffLines(
                     output,
@@ -665,7 +675,10 @@ function generateDiffString(
         }
 
         if (hasTrailingChange) {
-            const skippedLineCount = Math.max(0, part.lines.length - contextLines);
+            const skippedLineCount = Math.max(
+                0,
+                part.lines.length - contextLines,
+            );
             if (skippedLineCount > 0) {
                 output.push(formatDiffEllipsis(lineNumberWidth));
                 oldLineNumber += skippedLineCount;
@@ -724,9 +737,8 @@ async function executeHashlineEdit(
         const { bom, text: withoutBom } = stripBom(rawContent);
         const originalLineEnding = detectLineEnding(withoutBom);
         const normalizedContent = normalizeToLf(withoutBom);
-        const { lines: originalLines, hasTrailingNewline } = splitNormalizedText(
-            normalizedContent,
-        );
+        const { lines: originalLines, hasTrailingNewline } =
+            splitNormalizedText(normalizedContent);
 
         const normalizedEdits = params.edits.map(normalizeEdit);
         validateAllAnchors(
@@ -748,7 +760,11 @@ async function executeHashlineEdit(
 
         if (changed) {
             const finalContent =
-                bom + restoreLineEndings(updatedNormalizedContent, originalLineEnding);
+                bom +
+                restoreLineEndings(
+                    updatedNormalizedContent,
+                    originalLineEnding,
+                );
             await writeFile(absolutePath, finalContent, "utf8");
         }
 

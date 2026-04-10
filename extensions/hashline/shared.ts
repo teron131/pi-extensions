@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-import type { AgentToolResult, ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Type, type Static } from "@sinclair/typebox";
+import type {
+    AgentToolResult,
+    ExtensionAPI,
+} from "@mariozechner/pi-coding-agent";
+import { type Static, Type } from "@sinclair/typebox";
 
 const HASHLINE_NIBBLE_ALPHABET = "ZPMQVRWSNKTXJBYH";
 const BOM_MARKER = "\uFEFF";
@@ -15,7 +18,13 @@ export const HASHLINE_ANCHOR_RE = new RegExp(
     `^(?:[>+-]*\\s*)?(\\d+)\\s*#\\s*(${HASHLINE_TAG_RE})$`,
 );
 export const SIGNIFICANT_RE = /[\p{L}\p{N}]/u;
-export const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+export const IMAGE_EXTENSIONS = new Set([
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+]);
 export const MISMATCH_CONTEXT = 2;
 export const DIFF_CONTEXT_LINES = 4;
 
@@ -95,7 +104,9 @@ const hashlineEditSchema = Type.Object(
     { additionalProperties: false },
 );
 
-export type RegisteredToolDefinition = Parameters<ExtensionAPI["registerTool"]>[0];
+export type RegisteredToolDefinition = Parameters<
+    ExtensionAPI["registerTool"]
+>[0];
 type BuiltInReadTool = ReturnType<
     typeof import("@mariozechner/pi-coding-agent")["createReadToolDefinition"]
 >;
@@ -187,7 +198,8 @@ function formatMismatchMessage(
     for (const mismatch of mismatches) {
         for (
             let lineNumber = Math.max(1, mismatch.line - MISMATCH_CONTEXT);
-            lineNumber <= Math.min(fileLines.length, mismatch.line + MISMATCH_CONTEXT);
+            lineNumber <=
+            Math.min(fileLines.length, mismatch.line + MISMATCH_CONTEXT);
             lineNumber += 1
         ) {
             displayLines.add(lineNumber);
@@ -200,7 +212,9 @@ function formatMismatchMessage(
     ];
     let previousLineNumber = 0;
 
-    for (const lineNumber of [...displayLines].sort((left, right) => left - right)) {
+    for (const lineNumber of [...displayLines].sort(
+        (left, right) => left - right,
+    )) {
         if (previousLineNumber && lineNumber > previousLineNumber + 1) {
             output.push("    ...");
         }
@@ -289,7 +303,10 @@ export function formatHashline(lineNumber: number, line: string): string {
     return `${lineNumber}#${computeLineHash(lineNumber, line)}:${line}`;
 }
 
-export function formatHashlineLines(lines: string[], startLine: number): string {
+export function formatHashlineLines(
+    lines: string[],
+    startLine: number,
+): string {
     return lines
         .map((line, index) => formatHashline(startLine + index, line))
         .join("\n");

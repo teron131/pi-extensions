@@ -14,7 +14,7 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 
-import { formatDiffSummary } from "./tool-preview.js";
+import { formatDiffSummary } from "./tools-preview.js";
 
 type MessagePayload = {
     role: string;

@@ -16,7 +16,12 @@ import {
     truncateHead,
 } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
-
+import {
+    getPreviewMode,
+    renderCallPreview,
+    renderResultPreview,
+    type ToolResultLike,
+} from "../tool-preview.js";
 import {
     createTextToolResult,
     formatHashlineLines,
@@ -25,16 +30,10 @@ import {
     lastReadSnapshots,
     normalizeToLf,
     normalizeToolPath,
+    type ReadUpdateCallback,
     resolveToolPath,
     splitNormalizedText,
-    type ReadUpdateCallback,
 } from "./shared.js";
-import {
-    getPreviewMode,
-    renderCallPreview,
-    renderResultPreview,
-    type ToolResultLike,
-} from "../tool-preview.js";
 
 async function executeHashlineRead(
     toolCallId: string,
@@ -82,7 +81,9 @@ async function executeHashlineRead(
 
     const selectedLines = allLines.slice(
         startLine,
-        params.limit === undefined ? undefined : Math.min(startLine + params.limit, totalLines),
+        params.limit === undefined
+            ? undefined
+            : Math.min(startLine + params.limit, totalLines),
     );
     const truncation = truncateHead(
         formatHashlineLines(selectedLines, displayStartLine),
@@ -104,7 +105,10 @@ async function executeHashlineRead(
         );
     }
 
-    if (params.limit !== undefined && startLine + selectedLines.length < totalLines) {
+    if (
+        params.limit !== undefined &&
+        startLine + selectedLines.length < totalLines
+    ) {
         const nextOffset = startLine + selectedLines.length + 1;
         const remainingLines = totalLines - (startLine + selectedLines.length);
         return createTextToolResult(
