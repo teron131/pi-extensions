@@ -9,6 +9,8 @@ import {
     Key,
     matchesKey,
     truncateToWidth,
+    visibleWidth,
+    wrapTextWithAnsi,
 } from "@mariozechner/pi-tui";
 import {
     type Answer,
@@ -360,22 +362,37 @@ export async function runQuestionnaireSession(
         function renderChoiceItems(
             question: Question,
             selectedIndex: number,
-            add: (line: string) => void,
+            addWrapped: (
+                text: string,
+                initialPrefix?: string,
+                continuationPrefix?: string,
+            ) => void,
         ) {
             const items = buildChoiceItems(question);
             for (const [index, item] of items.entries()) {
                 const selected = index === selectedIndex;
                 const prefix = selected ? theme.fg("accent", "> ") : "  ";
                 const labelIndex = item.kind === "skip" ? "0" : String(index);
-                add(
-                    prefix +
-                        theme.fg(
-                            selected ? "accent" : "text",
-                            `${labelIndex}. ${item.label}`,
-                        ),
+                const numberPrefixRaw = `${labelIndex}. `;
+                const numberPrefix = theme.fg(
+                    selected ? "accent" : "text",
+                    numberPrefixRaw,
+                );
+                const continuationPrefix = " ".repeat(
+                    visibleWidth(prefix) + visibleWidth(numberPrefixRaw),
+                );
+
+                addWrapped(
+                    theme.fg(selected ? "accent" : "text", item.label),
+                    `${prefix}${numberPrefix}`,
+                    continuationPrefix,
                 );
                 if (item.description) {
-                    add(`     ${theme.fg("muted", item.description)}`);
+                    addWrapped(
+                        theme.fg("muted", item.description),
+                        "     ",
+                        "     ",
+                    );
                 }
             }
         }
@@ -390,6 +407,26 @@ export async function runQuestionnaireSession(
             const question = currentQuestion();
             const add = (line: string) =>
                 lines.push(truncateToWidth(line, width));
+            const addWrapped = (
+                text: string,
+                initialPrefix = "",
+                continuationPrefix = initialPrefix,
+            ) => {
+                const availableWidth = Math.max(
+                    1,
+                    width - visibleWidth(initialPrefix),
+                );
+                const wrapped = wrapTextWithAnsi(text, availableWidth);
+                if (wrapped.length === 0) {
+                    add(initialPrefix);
+                    return;
+                }
+
+                add(`${initialPrefix}${wrapped[0]}`);
+                for (const line of wrapped.slice(1)) {
+                    add(`${continuationPrefix}${line}`);
+                }
+            };
             const separator = theme.fg("accent", "─".repeat(width));
 
             add(separator);
@@ -418,20 +455,26 @@ export async function runQuestionnaireSession(
             }
 
             if (inputMode && question) {
-                add(theme.fg("text", ` ${question.prompt}`));
+                addWrapped(theme.fg("text", question.prompt), " ", " ");
                 lines.push("");
-                add(theme.fg("muted", ` ${question.noteLabel}:`));
+                addWrapped(
+                    theme.fg("muted", `${question.noteLabel}:`),
+                    " ",
+                    " ",
+                );
                 for (const line of editor.render(width - 2)) {
                     add(` ${line}`);
                 }
                 lines.push("");
-                add(
+                addWrapped(
                     theme.fg(
                         "dim",
                         inputMode === "customChoice"
-                            ? " Enter to save custom response • Esc to cancel"
-                            : " Enter to save note • Esc to cancel",
+                            ? "Enter to save custom response • Esc to cancel"
+                            : "Enter to save note • Esc to cancel",
                     ),
+                    " ",
+                    " ",
                 );
             } else if (currentTab === visibleQuestions.length) {
                 add(theme.fg("accent", theme.bold(" Ready to submit")));
@@ -445,38 +488,43 @@ export async function runQuestionnaireSession(
                         visibleQuestion,
                         answer,
                     ).split("\n")) {
-                        add(theme.fg("text", line));
+                        addWrapped(theme.fg("text", line));
                     }
                 }
                 lines.push("");
-                add(theme.fg("success", " Press Enter to submit"));
+                addWrapped(
+                    theme.fg("success", "Press Enter to submit"),
+                    " ",
+                    " ",
+                );
             } else if (question) {
                 const selectionIndex = Math.min(
                     Math.max(getSelectionIndex(question), 0),
                     buildChoiceItems(question).length - 1,
                 );
                 setSelectionIndex(question.id, selectionIndex);
-                add(theme.fg("text", ` ${question.prompt}`));
+                addWrapped(theme.fg("text", question.prompt), " ", " ");
                 lines.push("");
-                renderChoiceItems(question, selectionIndex, add);
+                renderChoiceItems(question, selectionIndex, addWrapped);
                 lines.push("");
                 const answer = answers.get(question.id);
                 if (answer?.note) {
-                    add(
-                        theme.fg(
-                            "muted",
-                            ` ${question.noteLabel}: ${answer.note}`,
-                        ),
+                    addWrapped(
+                        theme.fg("muted", answer.note),
+                        theme.fg("muted", ` ${question.noteLabel}: `),
+                        " ".repeat(question.noteLabel.length + 3),
                     );
                     lines.push("");
                 }
-                add(
+                addWrapped(
                     theme.fg(
                         "dim",
                         isMulti
-                            ? " Tab/←→ navigate • ↑↓ select • n note • Enter choose/submit • Esc cancel"
-                            : " ↑↓ select • n note • Enter choose • Esc cancel",
+                            ? "Tab/←→ navigate • ↑↓ select • n note • Enter choose/submit • Esc cancel"
+                            : "↑↓ select • n note • Enter choose • Esc cancel",
                     ),
+                    " ",
+                    " ",
                 );
             }
 

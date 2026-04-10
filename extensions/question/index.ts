@@ -3,7 +3,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Text, truncateToWidth } from "@mariozechner/pi-tui";
+import { Text } from "@mariozechner/pi-tui";
 import {
     errorResult,
     formatAnswerSummary,
@@ -88,7 +88,7 @@ export default function question(pi: ExtensionAPI): void {
                 `${count} question${count !== 1 ? "s" : ""}`,
             );
             if (labels) {
-                text += theme.fg("dim", ` (${truncateToWidth(labels, 40)})`);
+                text += theme.fg("dim", ` (${labels})`);
             }
             return new Text(text, 0, 0);
         },
