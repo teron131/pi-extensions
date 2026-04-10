@@ -29,7 +29,14 @@ import {
     truncateHead,
     withFileMutationQueue,
 } from "@mariozechner/pi-coding-agent";
+import { Text } from "@mariozechner/pi-tui";
 import { type Static, Type } from "@sinclair/typebox";
+import {
+    getPreviewMode,
+    renderCallPreview,
+    renderResultPreview,
+    type ToolResultLike,
+} from "../tool-preview.js";
 
 const HASHLINE_NIBBLE_ALPHABET = "ZPMQVRWSNKTXJBYH";
 const HASHLINE_TAG_LENGTH = 3;
@@ -1098,6 +1105,17 @@ export default function hashlineToolOverride(pi: ExtensionAPI) {
                     ctx,
                 );
             },
+            renderCall(args, theme) {
+                return renderCallPreview("hashline_read", args, theme);
+            },
+            renderResult(result, _options, theme) {
+                const mode = getPreviewMode();
+                return new Text(
+                    renderResultPreview(result as ToolResultLike, theme, mode),
+                    0,
+                    0,
+                );
+            },
         }),
     );
 
@@ -1195,6 +1213,17 @@ export default function hashlineToolOverride(pi: ExtensionAPI) {
 
                     return createTextToolResult(statusMessage, details);
                 });
+            },
+            renderCall(args, theme) {
+                return renderCallPreview("hashline_edit", args, theme);
+            },
+            renderResult(result, _options, theme) {
+                const mode = getPreviewMode();
+                return new Text(
+                    renderResultPreview(result as ToolResultLike, theme, mode),
+                    0,
+                    0,
+                );
             },
         }),
     );

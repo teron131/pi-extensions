@@ -7,15 +7,21 @@
  * - full: full output
  *
  * Ctrl+O cycles the mode in the interactive TUI.
+ *
+ * Coverage strategy:
+ * - wraps the built-in coding tools directly
+ * - replays custom extension factories to capture their tool definitions
+ * - also replays common lifecycle handlers (`session_start`, `session_tree`, `before_agent_start`) so tools registered there are usually covered too
+ *
+ * Remaining limitation:
+ * - tools registered outside replayable extension factories/handlers, or tools whose meaningful output only exists in custom non-text renderers, may still need explicit integration
  */
 
 import { stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
     ExtensionAPI,
-    Theme,
     ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import {
@@ -27,16 +33,19 @@ import {
     createReadTool,
     createWriteTool,
 } from "@mariozechner/pi-coding-agent";
-import { Key, matchesKey, Text, truncateToWidth } from "@mariozechner/pi-tui";
+import { Key, matchesKey, Text } from "@mariozechner/pi-tui";
+import {
+    getPreviewMode,
+    modeLabel,
+    nextMode,
+    type PreviewMode,
+    renderCallPreview,
+    renderResultPreview,
+    setPreviewMode,
+    type ToolResultLike,
+} from "./tool-preview.js";
 
-type PreviewMode = "compact" | "preview" | "full";
 type ToolDefinitionLike = ToolDefinition;
-type ToolContent = { type: string; text?: string };
-
-type ToolResultLike = {
-    content: ToolContent[];
-    details?: unknown;
-};
 
 type ToolInfoLike = {
     name: string;
@@ -46,6 +55,8 @@ type ToolInfoLike = {
         baseDir?: string;
     };
 };
+
+type CaptureEventName = "session_start" | "session_tree" | "before_agent_start";
 
 type SessionUi = {
     onTerminalInput(
@@ -71,34 +82,8 @@ type SessionContextLike = {
     };
 };
 
-const PREVIEW_MODES: PreviewMode[] = ["compact", "preview", "full"];
-const PREVIEW_LINE_LIMIT = 8;
-const CALL_PREVIEW_CHARS = 80;
-const RESULT_PREVIEW_CHARS = 120;
 const STATE_CUSTOM_TYPE = "tools-tui-state";
 let terminalInputUnsubscribe: (() => void) | undefined;
-let previewMode: PreviewMode = "compact";
-
-function shortenHomePath(filePath: string): string {
-    const home = homedir();
-    return filePath.startsWith(home)
-        ? `~${filePath.slice(home.length)}`
-        : filePath;
-}
-
-function splitLines(text: string): string[] {
-    const normalized = text.replace(/\r\n/g, "\n").replace(/\n+$/, "");
-    return normalized ? normalized.split("\n") : [];
-}
-
-function nextMode(mode: PreviewMode): PreviewMode {
-    const index = PREVIEW_MODES.indexOf(mode);
-    return PREVIEW_MODES[(index + 1) % PREVIEW_MODES.length];
-}
-
-function modeLabel(mode: PreviewMode): string {
-    return mode;
-}
 
 function hasTruncation(details: unknown): boolean {
     if (!details || typeof details !== "object") {
@@ -117,172 +102,6 @@ function hasTruncation(details: unknown): boolean {
     );
 }
 
-function textContent(result: ToolResultLike): string | undefined {
-    const parts: string[] = [];
-    for (const content of result.content) {
-        if (content.type === "text" && typeof content.text === "string") {
-            parts.push(content.text);
-        }
-    }
-    return parts.length > 0 ? parts.join("\n") : undefined;
-}
-
-function hasImageContent(result: ToolResultLike): boolean {
-    return result.content.some((content) => content.type === "image");
-}
-
-function summarizeArgs(args: unknown): string {
-    if (!args || typeof args !== "object") {
-        return "";
-    }
-
-    const record = args as Record<string, unknown>;
-    const parts: string[] = [];
-
-    const command = record.command;
-    if (typeof command === "string" && command.trim()) {
-        parts.push(truncateToWidth(command.trim(), CALL_PREVIEW_CHARS));
-    }
-
-    const path = record.path;
-    if (typeof path === "string" && path.trim()) {
-        parts.push(
-            shortenHomePath(truncateToWidth(path.trim(), CALL_PREVIEW_CHARS)),
-        );
-    }
-
-    const pattern = record.pattern;
-    if (parts.length === 0 && typeof pattern === "string" && pattern.trim()) {
-        parts.push(truncateToWidth(pattern.trim(), CALL_PREVIEW_CHARS));
-    }
-
-    const text = record.text;
-    if (parts.length === 0 && typeof text === "string" && text.trim()) {
-        parts.push(truncateToWidth(text.trim(), CALL_PREVIEW_CHARS));
-    }
-
-    const message = record.message;
-    if (parts.length === 0 && typeof message === "string" && message.trim()) {
-        parts.push(truncateToWidth(message.trim(), CALL_PREVIEW_CHARS));
-    }
-
-    const query = record.query;
-    if (parts.length === 0 && typeof query === "string" && query.trim()) {
-        parts.push(truncateToWidth(query.trim(), CALL_PREVIEW_CHARS));
-    }
-
-    const glob = record.glob;
-    if (parts.length === 0 && typeof glob === "string" && glob.trim()) {
-        parts.push(truncateToWidth(glob.trim(), CALL_PREVIEW_CHARS));
-    }
-
-    const edits = record.edits;
-    if (parts.length === 0 && Array.isArray(edits)) {
-        parts.push(`${edits.length} block${edits.length === 1 ? "" : "s"}`);
-    }
-
-    if (parts.length > 0) {
-        return parts.join(" ");
-    }
-
-    try {
-        return truncateToWidth(JSON.stringify(args), CALL_PREVIEW_CHARS);
-    } catch {
-        return "";
-    }
-}
-
-function renderCallPreview(
-    toolName: string,
-    args: unknown,
-    theme: Theme,
-): Text {
-    const summary = summarizeArgs(args);
-    const title = theme.fg("toolTitle", theme.bold(toolName));
-    if (!summary) {
-        return new Text(title, 0, 0);
-    }
-
-    return new Text(`${title} ${theme.fg("accent", summary)}`, 0, 0);
-}
-
-function renderPreviewLines(
-    text: string,
-    theme: Theme,
-    mode: PreviewMode,
-): string {
-    const lines = splitLines(text);
-    if (lines.length === 0) {
-        return "";
-    }
-
-    if (mode === "compact") {
-        const firstLine = truncateToWidth(lines[0], RESULT_PREVIEW_CHARS);
-        const suffix = lines.length > 1 ? theme.fg("muted", " …") : "";
-        return ` ${theme.fg("toolOutput", firstLine)}${suffix}`;
-    }
-
-    const limit = mode === "preview" ? PREVIEW_LINE_LIMIT : undefined;
-    const visibleLines = limit === undefined ? lines : lines.slice(0, limit);
-    const renderedLines = visibleLines.map((line) =>
-        mode === "full"
-            ? theme.fg("toolOutput", line)
-            : theme.fg(
-                  "toolOutput",
-                  truncateToWidth(line, RESULT_PREVIEW_CHARS),
-              ),
-    );
-
-    let output = `\n${renderedLines.join("\n")}`;
-    if (limit !== undefined && lines.length > limit) {
-        output += `\n${theme.fg("muted", `… ${lines.length - limit} more line${lines.length - limit === 1 ? "" : "s"}`)}`;
-    }
-    return output;
-}
-
-function renderResultPreview(
-    result: ToolResultLike,
-    theme: Theme,
-    mode: PreviewMode,
-): string {
-    const text = textContent(result);
-    if (!text) {
-        if (hasImageContent(result)) {
-            return theme.fg("success", "Image loaded");
-        }
-        return theme.fg("success", "done");
-    }
-
-    const lines = splitLines(text);
-    if (lines.length === 0) {
-        return theme.fg("success", "done");
-    }
-
-    if (mode === "compact") {
-        let output = theme.fg(
-            "toolOutput",
-            truncateToWidth(lines[0], RESULT_PREVIEW_CHARS),
-        );
-        if (lines.length > 1) {
-            output += theme.fg("muted", " …");
-        }
-        if (hasTruncation(result.details)) {
-            output += theme.fg("warning", " [truncated]");
-        }
-        return output;
-    }
-
-    let output = theme.fg(
-        "success",
-        `${lines.length} line${lines.length === 1 ? "" : "s"}`,
-    );
-    if (hasTruncation(result.details)) {
-        output += theme.fg("warning", " [truncated]");
-    }
-    output += renderPreviewLines(text, theme, mode);
-    return output;
-}
-
 function createBuiltInToolDefinitions(cwd: string): ToolDefinitionLike[] {
     return [
         createReadTool(cwd),
@@ -298,6 +117,10 @@ function createBuiltInToolDefinitions(cwd: string): ToolDefinitionLike[] {
 function createCaptureApi(
     pi: ExtensionAPI,
     capturedTools: Map<string, ToolDefinitionLike>,
+    capturedHandlers: Map<
+        CaptureEventName,
+        Array<(event: unknown, ctx: SessionContextLike) => unknown>
+    >,
 ): ExtensionAPI {
     return new Proxy(pi as object, {
         get(target, property, receiver) {
@@ -307,14 +130,35 @@ function createCaptureApi(
                 };
             }
 
+            if (property === "on") {
+                return (
+                    event: CaptureEventName,
+                    handler: (
+                        event: unknown,
+                        ctx: SessionContextLike,
+                    ) => unknown,
+                ) => {
+                    if (
+                        event !== "session_start" &&
+                        event !== "session_tree" &&
+                        event !== "before_agent_start"
+                    ) {
+                        return;
+                    }
+
+                    const handlers = capturedHandlers.get(event) ?? [];
+                    handlers.push(handler);
+                    capturedHandlers.set(event, handlers);
+                };
+            }
+
             if (
                 property === "registerCommand" ||
                 property === "registerShortcut" ||
                 property === "registerFlag" ||
                 property === "registerMessageRenderer" ||
                 property === "registerProvider" ||
-                property === "unregisterProvider" ||
-                property === "on"
+                property === "unregisterProvider"
             ) {
                 return () => undefined;
             }
@@ -326,6 +170,26 @@ function createCaptureApi(
             return value;
         },
     }) as ExtensionAPI;
+}
+
+async function replayCapturedHandlers(
+    capturedHandlers: Map<
+        CaptureEventName,
+        Array<(event: unknown, ctx: SessionContextLike) => unknown>
+    >,
+    eventName: CaptureEventName,
+    ctx: SessionContextLike,
+): Promise<void> {
+    const handlers = capturedHandlers.get(eventName) ?? [];
+    for (const handler of handlers) {
+        try {
+            await handler({}, ctx);
+        } catch (e) {
+            console.error(
+                `tools-tui failed to replay ${eventName} handler during tool capture: ${e}`,
+            );
+        }
+    }
 }
 
 function resolveSourcePath(toolInfo: ToolInfoLike): string | undefined {
@@ -352,36 +216,13 @@ async function fileExists(filePath: string): Promise<boolean> {
 
 async function captureToolDefinitions(
     pi: ExtensionAPI,
-    cwd: string,
+    ctx: SessionContextLike,
+    eventName: CaptureEventName,
 ): Promise<Map<string, ToolDefinitionLike>> {
     const definitions = new Map<string, ToolDefinitionLike>();
 
-    for (const definition of createBuiltInToolDefinitions(cwd)) {
+    for (const definition of createBuiltInToolDefinitions(ctx.cwd)) {
         definitions.set(definition.name, definition);
-    }
-
-    const captureApi = createCaptureApi(pi, definitions);
-
-    // Explicitly load known internal extensions that register tools
-    const knownExtensions = [
-        "./hashline/index.js",
-        "./todo-list/index.js",
-        "./question/index.js",
-        "./subagent/index.js",
-    ];
-    for (const extPath of knownExtensions) {
-        try {
-            const mod = await import(extPath);
-            if (typeof mod.default === "function") {
-                await (mod.default as (api: ExtensionAPI) => Promise<void>)(
-                    captureApi,
-                );
-            }
-        } catch (e) {
-            console.error(
-                `tools-tui failed to explicitly capture ${extPath}: ${e}`,
-            );
-        }
     }
 
     const importedSources = new Set<string>();
@@ -398,10 +239,20 @@ async function captureToolDefinitions(
 
         importedSources.add(sourcePath);
         try {
+            const capturedHandlers = new Map<
+                CaptureEventName,
+                Array<(event: unknown, ctx: SessionContextLike) => unknown>
+            >();
+            const captureApi = createCaptureApi(
+                pi,
+                definitions,
+                capturedHandlers,
+            );
             const module = await import(pathToFileURL(sourcePath).href);
             const factory = module.default;
             if (typeof factory === "function") {
                 await factory(captureApi);
+                await replayCapturedHandlers(capturedHandlers, eventName, ctx);
             }
         } catch (e) {
             console.error(
@@ -415,9 +266,10 @@ async function captureToolDefinitions(
 
 async function registerWrappedTools(
     pi: ExtensionAPI,
-    cwd: string,
+    ctx: SessionContextLike,
+    eventName: CaptureEventName,
 ): Promise<void> {
-    const capturedTools = await captureToolDefinitions(pi, cwd);
+    const capturedTools = await captureToolDefinitions(pi, ctx, eventName);
     for (const tool of capturedTools.values()) {
         pi.registerTool({
             ...tool,
@@ -439,12 +291,22 @@ async function registerWrappedTools(
                     return new Text(theme.fg("warning", "Running..."), 0, 0);
                 }
 
-                const mode = options.expanded ? "full" : previewMode;
+                const mode = getPreviewMode();
                 if (mode === "full" && tool.renderResult) {
-                    return tool.renderResult(result, options, theme, context);
+                    return tool.renderResult(
+                        result,
+                        { ...options, expanded: true },
+                        theme,
+                        context,
+                    );
                 }
                 return new Text(
-                    renderResultPreview(result as ToolResultLike, theme, mode),
+                    renderResultPreview(
+                        result as ToolResultLike,
+                        theme,
+                        mode,
+                        hasTruncation((result as ToolResultLike).details),
+                    ),
                     0,
                     0,
                 );
@@ -468,12 +330,13 @@ function getSavedMode(ctx: SessionContextLike): PreviewMode | undefined {
 }
 
 function syncUiState(ui: SessionUi): void {
-    ui.setStatus("tools-tui", `Tool preview: ${modeLabel(previewMode)}`);
-    ui.setToolsExpanded(previewMode === "full");
+    const mode = getPreviewMode();
+    ui.setStatus("tools-tui", `Tool preview: ${modeLabel(mode)}`);
+    ui.setToolsExpanded(mode !== "compact");
 }
 
 function persistMode(pi: ExtensionAPI): void {
-    pi.appendEntry(STATE_CUSTOM_TYPE, { mode: previewMode });
+    pi.appendEntry(STATE_CUSTOM_TYPE, { mode: getPreviewMode() });
 }
 
 function applyMode(
@@ -482,12 +345,12 @@ function applyMode(
     ctx: SessionContextLike,
     options?: { persist?: boolean; announce?: boolean },
 ): void {
-    if (previewMode === mode) {
+    if (getPreviewMode() === mode) {
         syncUiState(ctx.ui);
         return;
     }
 
-    previewMode = mode;
+    setPreviewMode(mode);
     syncUiState(ctx.ui);
 
     if (options?.persist !== false) {
@@ -495,7 +358,10 @@ function applyMode(
     }
 
     if (options?.announce) {
-        ctx.ui.notify(`Tool preview mode: ${modeLabel(previewMode)}`, "info");
+        ctx.ui.notify(
+            `Tool preview mode: ${modeLabel(getPreviewMode())}`,
+            "info",
+        );
     }
 }
 
@@ -514,7 +380,7 @@ function installTerminalListener(
             return undefined;
         }
 
-        applyMode(nextMode(previewMode), pi, ctx, {
+        applyMode(nextMode(getPreviewMode()), pi, ctx, {
             persist: true,
             announce: false,
         });
@@ -539,7 +405,7 @@ export default async function toolsTuiExtension(pi: ExtensionAPI) {
                 return;
             }
 
-            applyMode(nextMode(previewMode), pi, ctx, {
+            applyMode(nextMode(getPreviewMode()), pi, ctx, {
                 persist: true,
                 announce: true,
             });
@@ -548,18 +414,18 @@ export default async function toolsTuiExtension(pi: ExtensionAPI) {
 
     pi.on("session_start", async (_event, ctx) => {
         const savedMode = getSavedMode(ctx) ?? "compact";
-        previewMode = savedMode;
+        setPreviewMode(savedMode);
         syncUiState(ctx.ui);
         installTerminalListener(pi, ctx);
-        await registerWrappedTools(pi, ctx.cwd);
+        await registerWrappedTools(pi, ctx, "session_start");
     });
 
     pi.on("session_tree", async (_event, ctx) => {
         const savedMode = getSavedMode(ctx) ?? "compact";
-        previewMode = savedMode;
+        setPreviewMode(savedMode);
         syncUiState(ctx.ui);
         installTerminalListener(pi, ctx);
-        await registerWrappedTools(pi, ctx.cwd);
+        await registerWrappedTools(pi, ctx, "session_tree");
     });
 
     pi.on("session_shutdown", async () => {
@@ -568,6 +434,6 @@ export default async function toolsTuiExtension(pi: ExtensionAPI) {
     });
 
     pi.on("before_agent_start", async (_event, ctx) => {
-        await registerWrappedTools(pi, ctx.cwd);
+        await registerWrappedTools(pi, ctx, "before_agent_start");
     });
 }

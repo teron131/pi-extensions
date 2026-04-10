@@ -18,6 +18,8 @@ To load these into Pi, put them in `~/.pi/agent/extensions/`.
 
 **formatter-hook** runs `hooks/formatter.sh` when Pi shuts down inside a repo that contains that script. This is better than baking formatting logic into the extension because the shell script stays the single source of truth and the hook stays repo-local instead of affecting unrelated projects.
 
+**tools-tui** adds a shared compact → 8-line preview → full cycle for tool rows in the interactive UI via Ctrl+O. It auto-wraps the built-in coding tools plus most custom extension tools by replaying their factories and common lifecycle handlers, so in normal cases new tools inherit the behavior automatically. Remaining limitation: if a tool is registered outside those replayable paths or only makes sense through a custom non-text renderer, it may still need explicit integration.
+
 **todo-list** gives Pi a lightweight session-backed todo list for short-lived task tracking. The reason it is better than a generic checklist is that the state lives with the Pi session and reconstructs from branch history, so it stays consistent when you resume, compact, or move around the conversation tree instead of drifting out of sync.
 
 **planner** is a plan-first mode where Pi explores in read-only mode, builds a numbered plan, and only switches into execution when you choose to. A lot of harnesses say “plan first,” but this one is stronger because it actually enforces the boundary with restricted tools and read-only bash filtering, then carries the plan forward into tracked execution instead of relying on the model to remember its own promise.
