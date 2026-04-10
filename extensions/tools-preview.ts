@@ -399,12 +399,7 @@ function getEffectivePreviewWidth(
     return Math.max(8, Math.min(maxWidth, width));
 }
 
-function renderDiffLine(
-    line: string,
-    theme: Theme,
-    mode: PreviewMode,
-    width?: number,
-): string {
+function renderDiffLine(line: string, theme: Theme, width?: number): string {
     const content = truncateToWidth(line, getEffectivePreviewWidth(width));
 
     if (line.startsWith("+") && !line.startsWith("+++")) {
@@ -444,7 +439,7 @@ function renderDiffPreview(
 
     const limit = mode === "preview" ? PREVIEW_LINE_LIMIT : undefined;
     const visibleLines = limit === undefined ? lines : lines.slice(0, limit);
-    output += `\n${visibleLines.map((line) => renderDiffLine(line, theme, mode, width)).join("\n")}`;
+    output += `\n${visibleLines.map((line) => renderDiffLine(line, theme, width)).join("\n")}`;
 
     if (limit !== undefined && lines.length > limit) {
         output += `\n${theme.fg("muted", `… ${lines.length - limit} more diff line${lines.length - limit === 1 ? "" : "s"}`)}`;

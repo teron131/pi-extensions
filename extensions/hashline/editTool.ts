@@ -11,7 +11,6 @@ import {
     defineTool,
     withFileMutationQueue,
 } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
 import {
     getPreviewMode,
     renderCallPreview,

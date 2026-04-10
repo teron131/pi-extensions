@@ -15,7 +15,6 @@ import {
     formatSize,
     truncateHead,
 } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
 import {
     getPreviewMode,
     renderCallPreview,
