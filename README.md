@@ -16,7 +16,7 @@ To load these into Pi, put them in `~/.pi/agent/extensions/`.
 
 **hashline** replaces Pi’s built-in `read` and `edit` tools with a hashline protocol. Instead of depending on exact old-text matches, it returns text as `LINE#ID:content` and lets edits target those anchors directly, which is better for mixed-model use because stale edits fail fast and retry cleanly.
 
-**formatter-hook** runs `hooks/formatter.sh` when Pi shuts down inside a repo that contains that script. This is better than baking formatting logic into the extension because the shell script stays the single source of truth and the hook stays repo-local instead of affecting unrelated projects.
+**formatter-hook** runs `hooks/formatter.sh` when Pi shuts down inside a repo that contains that script. In this repo it is meant to be a validation-step hook: run native external tools once at the end, apply auto-fixes, and then let Ruff/Biome lint act as the final check instead of behaving like an always-on LSP after every edit.
 
 **tools-tui** adds a shared compact → 8-line preview → full cycle for tool rows in the interactive UI via Ctrl+O. It auto-wraps the built-in coding tools plus most custom extension tools by replaying their factories and common lifecycle handlers, so in normal cases new tools inherit the behavior automatically. Remaining limitation: if a tool is registered outside those replayable paths or only makes sense through a custom non-text renderer, it may still need explicit integration.
 
