@@ -239,20 +239,20 @@ export function findTodoTargets(
         targets.push({ todo, position });
     };
 
-    for (const pos of params.positions ?? []) {
-        if (pos < 1 || pos > visibleTodos.length) {
-            return { error: `item ${pos} not found` };
+    for (const position of params.positions ?? []) {
+        if (position < 1 || position > visibleTodos.length) {
+            return { error: `item ${position} not found` };
         }
-        addTarget(visibleTodos[pos - 1], pos);
+        addTarget(visibleTodos[position - 1], position);
     }
 
     for (const id of params.ids ?? []) {
         const todo = todos.find((candidate) => candidate.id === id);
         if (!todo) return { error: `todo id ${id} not found` };
-        const visibleIdx = visibleTodos.findIndex(
+        const visibleIndex = visibleTodos.findIndex(
             (candidate) => candidate.id === todo.id,
         );
-        addTarget(todo, visibleIdx >= 0 ? visibleIdx + 1 : undefined);
+        addTarget(todo, visibleIndex >= 0 ? visibleIndex + 1 : undefined);
     }
 
     if (!targets.length) {

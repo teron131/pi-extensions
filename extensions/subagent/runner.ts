@@ -216,28 +216,28 @@ export async function runSingleAgent(
                         currentResult.usage.turns++;
                         const usage = message.usage;
                         if (usage) {
-                            currentResult.usage.input += usage.input || 0;
-                            subagentGlobalUsage.input += usage.input || 0;
+                            currentResult.usage.input += usage.input ?? 0;
+                            subagentGlobalUsage.input += usage.input ?? 0;
 
-                            currentResult.usage.output += usage.output || 0;
-                            subagentGlobalUsage.output += usage.output || 0;
+                            currentResult.usage.output += usage.output ?? 0;
+                            subagentGlobalUsage.output += usage.output ?? 0;
 
                             currentResult.usage.cacheRead +=
-                                usage.cacheRead || 0;
+                                usage.cacheRead ?? 0;
                             subagentGlobalUsage.cacheRead +=
-                                usage.cacheRead || 0;
+                                usage.cacheRead ?? 0;
 
                             currentResult.usage.cacheWrite +=
-                                usage.cacheWrite || 0;
+                                usage.cacheWrite ?? 0;
                             subagentGlobalUsage.cacheWrite +=
-                                usage.cacheWrite || 0;
+                                usage.cacheWrite ?? 0;
 
-                            currentResult.usage.cost += usage.cost?.total || 0;
-                            subagentGlobalUsage.cost += usage.cost?.total || 0;
+                            currentResult.usage.cost += usage.cost?.total ?? 0;
+                            subagentGlobalUsage.cost += usage.cost?.total ?? 0;
 
                             currentResult.usage.contextTokens = Math.max(
                                 currentResult.usage.contextTokens,
-                                usage.totalTokens || 0,
+                                usage.totalTokens ?? 0,
                             );
                         }
                         if (message.model) {
@@ -267,7 +267,7 @@ export async function runSingleAgent(
             proc.stdout.on("data", (data) => {
                 buffer += data.toString();
                 const lines = buffer.split("\n");
-                buffer = lines.pop() || "";
+                buffer = lines.pop() ?? "";
                 for (const line of lines) processLine(line);
             });
 

@@ -24,26 +24,27 @@ const PROTECTED_PATH_PATTERNS = [
     /(^|\/).*\.(pem|key|p12|pfx|crt|cer)$/i,
 ];
 
-const isProtectedPath = (path: string): boolean =>
-    PROTECTED_PATH_PATTERNS.some((pattern) => pattern.test(path));
+const isProtectedPath = (filePath: string): boolean =>
+    PROTECTED_PATH_PATTERNS.some((pattern) => pattern.test(filePath));
 
 export default function (pi: ExtensionAPI) {
-    pi.on("tool_call", async (event, ctx) => {
+    pi.on("tool_call", (event, ctx) => {
         if (event.toolName !== "write" && event.toolName !== "edit") {
-            return undefined;
+            return;
         }
 
         const inputPath = event.input.path as string;
-        if (isProtectedPath(inputPath)) {
-            if (ctx.hasUI) {
-                ctx.ui.notify(
-                    `Blocked write to protected path: ${inputPath}`,
-                    "warning",
-                );
-            }
-            return { block: true, reason: `Path "${inputPath}" is protected` };
+        if (!isProtectedPath(inputPath)) {
+            return;
         }
 
-        return undefined;
+        if (ctx.hasUI) {
+            ctx.ui.notify(
+                `Blocked write to protected path: ${inputPath}`,
+                "warning",
+            );
+        }
+
+        return { block: true, reason: `Path "${inputPath}" is protected` };
     });
 }

@@ -61,19 +61,15 @@ export default function (pi: ExtensionAPI) {
         }, ANIMATION_INTERVAL_MS);
     }
 
-    pi.on("agent_start", async (_event, ctx) => {
+    pi.on("agent_start", (_event, ctx) => {
         startAnimation(ctx);
     });
 
-    const handleStop = async (ctx: ExtensionContext) => {
+    pi.on("agent_end", (_event, ctx) => {
         stopAnimation(ctx);
-    };
-
-    pi.on("agent_end", async (_event, ctx) => {
-        await handleStop(ctx);
     });
 
-    pi.on("session_shutdown", async (_event, ctx) => {
-        await handleStop(ctx);
+    pi.on("session_shutdown", (_event, ctx) => {
+        stopAnimation(ctx);
     });
 }

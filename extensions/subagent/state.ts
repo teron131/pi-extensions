@@ -1,6 +1,6 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Key, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
-import { formatTokens, getFooterMetricParts } from "../footer.js";
+import { getFooterMetricParts } from "../footer.js";
 import type { SingleResult } from "./chain.js";
 
 export const SUBAGENT_WIDGET_ID = "subagent-widget";
@@ -69,26 +69,24 @@ export function addSubagentRun(result: SingleResult) {
     }
 
     if (result.usage) {
-        stats.input += result.usage.input || 0;
-        stats.output += result.usage.output || 0;
-        stats.cacheRead += result.usage.cacheRead || 0;
-        stats.cacheWrite += result.usage.cacheWrite || 0;
-        stats.cost += result.usage.cost || 0;
-        stats.contextTokens += result.usage.contextTokens || 0;
-        stats.turns += result.usage.turns || 0;
+        stats.input += result.usage.input ?? 0;
+        stats.output += result.usage.output ?? 0;
+        stats.cacheRead += result.usage.cacheRead ?? 0;
+        stats.cacheWrite += result.usage.cacheWrite ?? 0;
+        stats.cost += result.usage.cost ?? 0;
+        stats.contextTokens += result.usage.contextTokens ?? 0;
+        stats.turns += result.usage.turns ?? 0;
     }
 }
 
 export function setRunningAgent(name: string, running: boolean) {
-    const count = runningAgents.get(name) || 0;
+    const runningCount = runningAgents.get(name) ?? 0;
     if (running) {
-        runningAgents.set(name, count + 1);
+        runningAgents.set(name, runningCount + 1);
+    } else if (runningCount > 1) {
+        runningAgents.set(name, runningCount - 1);
     } else {
-        if (count > 1) {
-            runningAgents.set(name, count - 1);
-        } else {
-            runningAgents.delete(name);
-        }
+        runningAgents.delete(name);
     }
 }
 
@@ -105,7 +103,7 @@ export function getRunningAgentsCount(): number {
 }
 
 export function isAgentRunning(name: string): boolean {
-    return (runningAgents.get(name) || 0) > 0;
+    return (runningAgents.get(name) ?? 0) > 0;
 }
 
 function padVisible(text: string, width: number): string {
@@ -174,10 +172,12 @@ export function renderSubagentWidgetLines(
     const columnWidths = {
         name: Math.max(0, ...rows.map((row) => visibleWidth(row.stats.name))),
         runs: Math.max(0, ...rows.map((row) => visibleWidth(row.usage.runs))),
-        parts: [0, 1, 2, 3, 4, 5].map((i) =>
+        parts: [0, 1, 2, 3, 4, 5].map((partIndex) =>
             Math.max(
                 0,
-                ...rows.map((row) => visibleWidth(row.usage.parts[i] || "")),
+                ...rows.map((row) =>
+                    visibleWidth(row.usage.parts[partIndex] ?? ""),
+                ),
             ),
         ),
     };
@@ -197,8 +197,11 @@ export function renderSubagentWidgetLines(
             padVisible(usage.runs, columnWidths.runs),
         );
 
-        const metricTexts = usage.parts.map((part, i) =>
-            theme.fg("muted", padVisible(part, columnWidths.parts[i] || 0)),
+        const metricTexts = usage.parts.map((part, partIndex) =>
+            theme.fg(
+                "muted",
+                padVisible(part, columnWidths.parts[partIndex] ?? 0),
+            ),
         );
 
         lines.push(

@@ -49,28 +49,27 @@ const isDangerousCommand = (command: string): boolean =>
 
 export default function (pi: ExtensionAPI) {
     pi.on("tool_call", async (event, ctx) => {
-        if (event.toolName !== "bash") return undefined;
+        if (event.toolName !== "bash") return;
 
         const command = event.input.command as string;
-        if (isDangerousCommand(command)) {
-            if (!ctx.hasUI) {
-                // In non-interactive mode, block by default
-                return {
-                    block: true,
-                    reason: "Dangerous command blocked (no UI for confirmation)",
-                };
-            }
-
-            const choice = await ctx.ui.select(
-                `⚠️ Dangerous command:\n\n  ${command}\n\nAllow?`,
-                ["Yes", "No"],
-            );
-
-            if (choice !== "Yes") {
-                return { block: true, reason: "Blocked by user" };
-            }
+        if (!isDangerousCommand(command)) {
+            return;
         }
 
-        return undefined;
+        if (!ctx.hasUI) {
+            return {
+                block: true,
+                reason: "Dangerous command blocked (no UI for confirmation)",
+            };
+        }
+
+        const decision = await ctx.ui.select(
+            `⚠️ Dangerous command:\n\n  ${command}\n\nAllow?`,
+            ["Yes", "No"],
+        );
+
+        if (decision !== "Yes") {
+            return { block: true, reason: "Blocked by user" };
+        }
     });
 }

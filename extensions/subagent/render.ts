@@ -91,10 +91,14 @@ function formatToolCall(
 ): string {
     switch (toolName) {
         case "bash": {
-            const command = (args.command as string) || "...";
-            const preview =
-                command.length > 60 ? `${command.slice(0, 60)}...` : command;
-            return themeFg("muted", "$ ") + themeFg("toolOutput", preview);
+            const commandText = (args.command as string) || "...";
+            const commandPreview =
+                commandText.length > 60
+                    ? `${commandText.slice(0, 60)}...`
+                    : commandText;
+            return (
+                themeFg("muted", "$ ") + themeFg("toolOutput", commandPreview)
+            );
         }
         case "read": {
             const rawPath = (args.file_path || args.path || "...") as string;
@@ -116,22 +120,24 @@ function formatToolCall(
         case "write": {
             const rawPath = (args.file_path || args.path || "...") as string;
             const filePath = shortenHomePath(rawPath);
-            const content = (args.content || "") as string;
-            const lines = content.split("\n").length;
+            const writeContent = (args.content || "") as string;
+            const lineCount = writeContent.split("\n").length;
             let text = themeFg("muted", "write ") + themeFg("accent", filePath);
-            if (lines > 1) text += themeFg("dim", ` (${lines} lines)`);
+            if (lineCount > 1) {
+                text += themeFg("dim", ` (${lineCount} lines)`);
+            }
             return text;
         }
         case "edit": {
             const rawPath = (args.file_path || args.path || "...") as string;
             const edits = Array.isArray(args.edits) ? args.edits : undefined;
-            const countStr = edits?.length
+            const countText = edits?.length
                 ? ` (${edits.length} block${edits.length > 1 ? "s" : ""})`
                 : "";
             return (
                 themeFg("muted", "edit ") +
                 themeFg("accent", shortenHomePath(rawPath)) +
-                themeFg("dim", countStr)
+                themeFg("dim", countText)
             );
         }
         case "ls": {
@@ -160,28 +166,32 @@ function formatToolCall(
             );
         }
         case "subagent": {
-            const action = (args.action as string) || "single";
-            if (action === "list") {
+            const subagentAction = (args.action as string) || "single";
+            if (subagentAction === "list") {
                 return themeFg("toolTitle", "subagent list");
             }
-            if (action === "chain" && Array.isArray(args.chain)) {
+            if (subagentAction === "chain" && Array.isArray(args.chain)) {
                 return (
                     themeFg("toolTitle", "subagent chain ") +
                     themeFg("dim", `(${args.chain.length} steps)`)
                 );
             }
-            if (action === "parallel" && Array.isArray(args.tasks)) {
+            if (subagentAction === "parallel" && Array.isArray(args.tasks)) {
                 return (
                     themeFg("toolTitle", "subagent parallel ") +
                     themeFg("dim", `(${args.tasks.length} tasks)`)
                 );
             }
-            const agent = (args.agent as string) || "...";
-            return themeFg("toolTitle", "subagent ") + themeFg("accent", agent);
+            const agentName = (args.agent as string) || "...";
+            return (
+                themeFg("toolTitle", "subagent ") + themeFg("accent", agentName)
+            );
         }
         case "todo": {
-            const action = (args.action as string) || "...";
-            return themeFg("toolTitle", "todo ") + themeFg("accent", action);
+            const todoAction = (args.action as string) || "...";
+            return (
+                themeFg("toolTitle", "todo ") + themeFg("accent", todoAction)
+            );
         }
         default: {
             const argsStr = JSON.stringify(args);
@@ -254,23 +264,6 @@ function getWorkflowSummary(rows: StageRow[]): WorkflowSummary {
         pendingCount,
         runningRow: rows.find((row) => row.state === "running"),
     };
-}
-
-function getWorkflowStatus(
-    summary: WorkflowSummary,
-    totalCount: number,
-    runningLabel: string,
-): string {
-    if (summary.runningCount > 0) {
-        return `${summary.doneCount + summary.failedCount}/${totalCount} done, ${runningLabel}`;
-    }
-    if (summary.failedCount > 0) {
-        return `${summary.doneCount}/${totalCount} succeeded, ${summary.failedCount} failed`;
-    }
-    if (summary.pendingCount > 0) {
-        return `${summary.doneCount}/${totalCount} done, ${summary.pendingCount} pending`;
-    }
-    return `${summary.doneCount}/${totalCount} completed`;
 }
 
 function buildStageRow(
@@ -437,12 +430,12 @@ export function renderSubagentCall(args: RenderCallArgs, theme: Theme) {
     }
 
     const agentName = args.agent || "...";
-    const preview = args.task ? getTaskPreview(args.task, 60) : "...";
+    const taskPreview = args.task ? getTaskPreview(args.task, 60) : "...";
     let text =
         theme.fg("toolTitle", theme.bold("subagent ")) +
         theme.fg("accent", agentName) +
         theme.fg("muted", ` [${scope}]`);
-    text += `\n  ${theme.fg("dim", preview)}`;
+    text += `\n  ${theme.fg("dim", taskPreview)}`;
     return new Text(text, 0, 0);
 }
 
@@ -461,7 +454,7 @@ export function renderSubagentResult(
         );
     }
 
-    const { expanded, isPartial } = options;
+    const { expanded } = options;
     const mdTheme = getMarkdownTheme();
     const warningsText = details.warnings.map(
         (warning) =>
@@ -603,12 +596,6 @@ export function renderSubagentResult(
             container.addChild(new Spacer(1));
             container.addChild(new Markdown(finalOutput.trim(), 0, 0, mdTheme));
         }
-    };
-    const getWorkflowIcon = (summary: WorkflowSummary): string => {
-        if (summary.runningCount > 0) return theme.fg("warning", "⏳");
-        if (summary.failedCount > 0) return theme.fg("warning", "◐");
-        if (summary.pendingCount > 0) return theme.fg("dim", "○");
-        return theme.fg("success", "✓");
     };
     const getTotalUsageText = (results: SingleResult[]): string => {
         return formatUsageStats(
@@ -786,12 +773,6 @@ export function renderSubagentResult(
             resultStage,
         );
         const usage = getSingleUsageText(resultStage);
-        const statusLabel =
-            isResultRunning(resultStage) || isPartial
-                ? "running"
-                : isResultError(resultStage)
-                  ? getResultStatusLabel(resultStage)
-                  : "completed";
 
         if (expanded) {
             const container = new Container();
@@ -826,7 +807,7 @@ export function renderSubagentResult(
 
         let text = "";
         if (warningsText.length > 0) {
-            text += warningsText.join("\n") + "\n";
+            text += `${warningsText.join("\n")}\n`;
         }
         text += getStagePreviewNote(
             resultStage,
@@ -859,12 +840,6 @@ export function renderSubagentResult(
                   }));
         const rows = buildPlannedStageRows(plannedStages, details.results);
         const summary = getWorkflowSummary(rows);
-        const icon = getWorkflowIcon(summary);
-        const status = getWorkflowStatus(
-            summary,
-            rows.length,
-            `step ${summary.runningRow?.position ?? "?"} running`,
-        );
         const totalUsage = getTotalUsageText(details.results);
 
         if (expanded) {
@@ -889,7 +864,7 @@ export function renderSubagentResult(
 
         let text = "";
         if (warningsText.length > 0) {
-            text += warningsText.join("\n") + "\n";
+            text += `${warningsText.join("\n")}\n`;
         }
         text += renderCollapsedWorkflowRows(rows, 120);
         const container = new Container();
@@ -914,12 +889,6 @@ export function renderSubagentResult(
             buildStageRow(index + 1, stage.agent, stage.task, stage),
         );
         const summary = getWorkflowSummary(rows);
-        const icon = getWorkflowIcon(summary);
-        const status = getWorkflowStatus(
-            summary,
-            rows.length,
-            `${summary.runningCount} running`,
-        );
         const totalUsage =
             summary.runningCount === 0
                 ? getTotalUsageText(details.results)
@@ -947,7 +916,7 @@ export function renderSubagentResult(
 
         let text = "";
         if (warningsText.length > 0) {
-            text += warningsText.join("\n") + "\n";
+            text += `${warningsText.join("\n")}\n`;
         }
         text += renderCollapsedWorkflowRows(rows, 120);
         const container = new Container();

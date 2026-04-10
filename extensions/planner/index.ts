@@ -49,8 +49,10 @@ const PLAN_COMPLETE_TYPE = "plan-complete";
 const PLAN_READY_TYPE = "plan-ready";
 const PLAN_EXEC_CONTEXT_TYPE = "plan-execution-context";
 
-function isAssistantMessage(m: AgentMessage): m is AssistantMessage {
-    return m.role === "assistant" && Array.isArray(m.content);
+function isAssistantMessage(
+    message: AgentMessage,
+): message is AssistantMessage {
+    return message.role === "assistant" && Array.isArray(message.content);
 }
 
 function getTextContent(message: AssistantMessage): string {
@@ -107,9 +109,9 @@ function setPlanTodoItems(items: TodoItem[]): void {
 }
 
 function findLastExecuteIndex(entries: unknown[]): number {
-    for (let i = entries.length - 1; i >= 0; i--) {
-        const entry = entries[i] as { customType?: string };
-        if (entry.customType === PLAN_EXECUTE_TYPE) return i;
+    for (let entryIndex = entries.length - 1; entryIndex >= 0; entryIndex--) {
+        const entry = entries[entryIndex] as { customType?: string };
+        if (entry.customType === PLAN_EXECUTE_TYPE) return entryIndex;
     }
     return -1;
 }
@@ -120,8 +122,15 @@ function rescanCompletions(
     fromIndex: number,
 ): boolean {
     const messages: AssistantMessage[] = [];
-    for (let i = fromIndex + 1; i < entries.length; i++) {
-        const entry = entries[i] as { type?: string; message?: AgentMessage };
+    for (
+        let entryIndex = fromIndex + 1;
+        entryIndex < entries.length;
+        entryIndex++
+    ) {
+        const entry = entries[entryIndex] as {
+            type?: string;
+            message?: AgentMessage;
+        };
         if (
             entry.type === "message" &&
             entry.message &&
@@ -144,7 +153,9 @@ export default function planModeExtension(pi: ExtensionAPI): void {
         const todoItems = getPlanTodoItems();
 
         if (executionMode && todoItems.length > 0) {
-            const completed = todoItems.filter((t) => t.completed).length;
+            const completed = todoItems.filter(
+                (todoItem) => todoItem.completed,
+            ).length;
             ctx.ui.setStatus(
                 "plan-mode",
                 ctx.ui.theme.fg(
@@ -262,20 +273,22 @@ export default function planModeExtension(pi: ExtensionAPI): void {
         if (planModeEnabled) return;
 
         return {
-            messages: event.messages.filter((m) => {
-                const msg = m as AgentMessage & { customType?: string };
-                if (msg.customType === PLAN_CONTEXT_TYPE) return false;
-                if (msg.role !== "user") return true;
+            messages: event.messages.filter((message) => {
+                const agentMessage = message as AgentMessage & {
+                    customType?: string;
+                };
+                if (agentMessage.customType === PLAN_CONTEXT_TYPE) return false;
+                if (agentMessage.role !== "user") return true;
 
-                const content = msg.content;
+                const content = agentMessage.content;
                 if (typeof content === "string") {
                     return !content.includes("[PLAN MODE ACTIVE]");
                 }
                 if (Array.isArray(content)) {
                     return !content.some(
-                        (c) =>
-                            c.type === "text" &&
-                            (c as TextContent).text?.includes(
+                        (contentBlock) =>
+                            contentBlock.type === "text" &&
+                            (contentBlock as TextContent).text?.includes(
                                 "[PLAN MODE ACTIVE]",
                             ),
                     );
@@ -327,9 +340,11 @@ After writing the plan, stop. Tell the user the plan is finished, include a brie
         }
 
         if (executionMode && todoItems.length > 0) {
-            const remaining = todoItems.filter((t) => !t.completed);
+            const remaining = todoItems.filter(
+                (todoItem) => !todoItem.completed,
+            );
             const todoList = remaining
-                .map((t) => `${t.step}. ${t.text}`)
+                .map((todoItem) => `${todoItem.step}. ${todoItem.text}`)
                 .join("\n");
             return {
                 message: {
@@ -364,9 +379,9 @@ After completing a step, include a [DONE:n] tag in your response.`,
         const todoItems = getPlanTodoItems();
 
         if (executionMode && todoItems.length > 0) {
-            if (todoItems.every((t) => t.completed)) {
+            if (todoItems.every((todoItem) => todoItem.completed)) {
                 const completedList = todoItems
-                    .map((t) => `~~${t.text}~~`)
+                    .map((todoItem) => `~~${todoItem.text}~~`)
                     .join("\n");
                 pi.sendMessage(
                     {

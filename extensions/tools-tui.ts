@@ -186,9 +186,9 @@ async function replayCapturedHandlers(
     for (const handler of handlers) {
         try {
             await handler({}, ctx);
-        } catch (e) {
+        } catch (error) {
             console.error(
-                `tools-tui failed to replay ${eventName} handler during tool capture: ${e}`,
+                `tools-tui failed to replay ${eventName} handler during tool capture: ${error}`,
             );
         }
     }
@@ -196,7 +196,7 @@ async function replayCapturedHandlers(
 
 function resolveSourcePath(toolInfo: ToolInfoLike): string | undefined {
     if (!toolInfo.sourceInfo.path || toolInfo.sourceInfo.path.startsWith("<")) {
-        return undefined;
+        return;
     }
 
     if (isAbsolute(toolInfo.sourceInfo.path)) {
@@ -253,15 +253,15 @@ async function captureToolDefinitions(
                 definitions,
                 capturedHandlers,
             );
-            const module = await import(pathToFileURL(sourcePath).href);
-            const factory = module.default;
+            const importedModule = await import(pathToFileURL(sourcePath).href);
+            const factory = importedModule.default;
             if (typeof factory === "function") {
                 await factory(captureApi);
                 await replayCapturedHandlers(capturedHandlers, eventName, ctx);
             }
-        } catch (e) {
+        } catch (error) {
             console.error(
-                `tools-tui failed to import tool source: ${sourcePath} - ${e}`,
+                `tools-tui failed to import tool source: ${sourcePath} - ${error}`,
             );
         }
     }
@@ -348,7 +348,7 @@ function getSavedMode(ctx: SessionContextLike): PreviewMode | undefined {
             }
         }
     }
-    return undefined;
+    return;
 }
 
 function syncUiState(ui: SessionUi): void {
@@ -399,7 +399,7 @@ function installTerminalListener(
 
     terminalInputUnsubscribe = ctx.ui.onTerminalInput((data) => {
         if (!matchesKey(data, Key.ctrl("o"))) {
-            return undefined;
+            return;
         }
 
         applyMode(nextMode(getPreviewMode()), pi, ctx, {

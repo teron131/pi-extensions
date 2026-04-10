@@ -22,7 +22,7 @@ async function getRepoRoot(
     }
 
     const repoRoot = result.stdout.trim();
-    return repoRoot || null;
+    return repoRoot ? repoRoot : null;
 }
 
 function getFormatterScriptPath(repoRoot: string): string {

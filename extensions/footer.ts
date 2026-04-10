@@ -97,9 +97,9 @@ export function getFooterMetricParts(options: FooterMetricsOptions): string[] {
 
     if (modelLabel) parts.push(modelLabel);
 
-    const cacheRead = options.cacheRead || 0;
-    const totalInput = (options.input || 0) + cacheRead;
-    const output = options.output || 0;
+    const cacheRead = options.cacheRead ?? 0;
+    const totalInput = options.input + cacheRead;
+    const output = options.output;
     parts.push(`⬆️  ${formatTokens(totalInput)}`);
     parts.push(`⬇️  ${formatTokens(output)}`);
 
@@ -110,7 +110,7 @@ export function getFooterMetricParts(options: FooterMetricsOptions): string[] {
 
     const contextText =
         options.contextText ??
-        (options.contextTokens && options.contextTokens > 0
+        (options.contextTokens !== undefined && options.contextTokens > 0
             ? formatTokens(options.contextTokens)
             : options.showZeroContext && options.contextTokens !== undefined
               ? formatTokens(options.contextTokens)
@@ -185,18 +185,18 @@ export class FooterBlock {
 }
 
 function formatRunTime(ms: number): string {
-    const totalSecs = Math.floor(ms / 1000);
-    const hours = Math.floor(totalSecs / 3600);
-    const mins = Math.floor((totalSecs % 3600) / 60);
-    const secs = totalSecs % 60;
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
 
-    const sStr = secs.toString().padStart(2, "0");
+    const secondsText = seconds.toString().padStart(2, "0");
     if (hours > 0) {
-        const mStr = mins.toString().padStart(2, "0");
-        return `${hours}:${mStr}:${sStr}`;
+        const minutesText = minutes.toString().padStart(2, "0");
+        return `${hours}:${minutesText}:${secondsText}`;
     }
-    const mStr = mins.toString().padStart(2, "0");
-    return `${mStr}:${sStr}`;
+    const minutesText = minutes.toString().padStart(2, "0");
+    return `${minutesText}:${secondsText}`;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -252,11 +252,11 @@ export default function (pi: ExtensionAPI) {
                         if (!seenMessageIds.has(entry.id)) {
                             seenMessageIds.add(entry.id);
                             const message = entry.message as AssistantMessage;
-                            sessionInput += message.usage.input || 0;
-                            sessionOutput += message.usage.output || 0;
-                            sessionCacheRead += message.usage.cacheRead || 0;
-                            _sessionCacheWrite += message.usage.cacheWrite || 0;
-                            sessionCost += message.usage.cost?.total || 0;
+                            sessionInput += message.usage.input ?? 0;
+                            sessionOutput += message.usage.output ?? 0;
+                            sessionCacheRead += message.usage.cacheRead ?? 0;
+                            _sessionCacheWrite += message.usage.cacheWrite ?? 0;
+                            sessionCost += message.usage.cost?.total ?? 0;
                         }
                     }
 
@@ -302,8 +302,12 @@ export default function (pi: ExtensionAPI) {
                     let foundThinking = false;
                     let currentThinkingLevel = "off";
 
-                    for (let i = branch.length - 1; i >= 0; i--) {
-                        const entry = branch[i] as SessionEntryPayload;
+                    for (
+                        let entryIndex = branch.length - 1;
+                        entryIndex >= 0;
+                        entryIndex--
+                    ) {
+                        const entry = branch[entryIndex] as SessionEntryPayload;
 
                         if (
                             !foundThinking &&
@@ -314,10 +318,15 @@ export default function (pi: ExtensionAPI) {
                         }
 
                         if (entry.type === "message") {
-                            const msg = entry.message as MessagePayload;
+                            const messagePayload =
+                                entry.message as MessagePayload;
                             if (!lastMsgEntry) lastMsgEntry = entry;
-                            if (msg.role === "user" && !lastUserEntry)
+                            if (
+                                messagePayload.role === "user" &&
+                                !lastUserEntry
+                            ) {
                                 lastUserEntry = entry;
+                            }
                         }
                     }
 
@@ -335,18 +344,20 @@ export default function (pi: ExtensionAPI) {
                     let isRunning = false;
 
                     if (lastUserEntry && lastMsgEntry) {
-                        const userMsg = lastUserEntry.message as MessagePayload;
+                        const userMessage =
+                            lastUserEntry.message as MessagePayload;
                         const startTime =
-                            userMsg.timestamp ||
+                            userMessage.timestamp ??
                             new Date(lastUserEntry.timestamp).getTime();
 
-                        const lastMsg = lastMsgEntry.message as MessagePayload;
+                        const lastMessage =
+                            lastMsgEntry.message as MessagePayload;
                         isRunning =
-                            lastMsg.role === "user" ||
-                            lastMsg.role === "toolResult" ||
-                            (lastMsg.role === "assistant" &&
-                                (!lastMsg.stopReason ||
-                                    lastMsg.stopReason === "toolUse"));
+                            lastMessage.role === "user" ||
+                            lastMessage.role === "toolResult" ||
+                            (lastMessage.role === "assistant" &&
+                                (!lastMessage.stopReason ||
+                                    lastMessage.stopReason === "toolUse"));
 
                         if (isRunning) {
                             currentRunTimeMs = Math.max(
@@ -357,19 +368,14 @@ export default function (pi: ExtensionAPI) {
                                 lastMsgEntry.id,
                                 currentRunTimeMs,
                             );
+                        } else if (sessionRunTimes.has(lastMsgEntry.id)) {
+                            currentRunTimeMs =
+                                sessionRunTimes.get(lastMsgEntry.id) ?? 0;
                         } else {
-                            if (sessionRunTimes.has(lastMsgEntry.id)) {
-                                currentRunTimeMs =
-                                    sessionRunTimes.get(lastMsgEntry.id) ?? 0;
-                            } else {
-                                const endTime =
-                                    lastMsg.timestamp ||
-                                    new Date(lastMsgEntry.timestamp).getTime();
-                                currentRunTimeMs = Math.max(
-                                    0,
-                                    endTime - startTime,
-                                );
-                            }
+                            const endTime =
+                                lastMessage.timestamp ??
+                                new Date(lastMsgEntry.timestamp).getTime();
+                            currentRunTimeMs = Math.max(0, endTime - startTime);
                         }
                     }
 

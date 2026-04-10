@@ -75,10 +75,12 @@ function summarizeArgs(args: unknown): string {
         parts.push(truncateToWidth(command.trim(), CALL_PREVIEW_CHARS));
     }
 
-    const path = record.path;
-    if (typeof path === "string" && path.trim()) {
+    const filePath = record.path;
+    if (typeof filePath === "string" && filePath.trim()) {
         parts.push(
-            shortenHomePath(truncateToWidth(path.trim(), CALL_PREVIEW_CHARS)),
+            shortenHomePath(
+                truncateToWidth(filePath.trim(), CALL_PREVIEW_CHARS),
+            ),
         );
     }
 
@@ -137,7 +139,7 @@ export function renderCallPreview(
     return new Text(`${title} ${theme.fg("accent", summary)}`, 0, 0);
 }
 
-function textContent(result: ToolResultLike): string | undefined {
+function getTextContent(result: ToolResultLike): string | undefined {
     const parts: string[] = [];
     for (const content of result.content) {
         if (content.type === "text" && typeof content.text === "string") {
@@ -151,14 +153,14 @@ function hasImageContent(result: ToolResultLike): boolean {
     return result.content.some((content) => content.type === "image");
 }
 
-function diffText(result: ToolResultLike): string | undefined {
+function getDiffText(result: ToolResultLike): string | undefined {
     if (!result.details || typeof result.details !== "object") {
-        return undefined;
+        return;
     }
 
     const diff = (result.details as { diff?: unknown }).diff;
     if (typeof diff !== "string" || !diff.trim()) {
-        return undefined;
+        return;
     }
 
     return diff;
@@ -274,12 +276,12 @@ export function renderResultPreview(
     mode: PreviewMode,
     hasTruncation = false,
 ): string {
-    const diff = diffText(result);
+    const diff = getDiffText(result);
     if (diff) {
         return renderDiffPreview(diff, theme, mode, hasTruncation);
     }
 
-    const text = textContent(result);
+    const text = getTextContent(result);
     if (!text) {
         if (hasImageContent(result)) {
             return theme.fg("success", "Image loaded");

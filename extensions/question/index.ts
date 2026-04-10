@@ -77,7 +77,7 @@ export default function question(pi: ExtensionAPI): void {
 
         renderCall(args: QuestionnaireToolParams, theme, _context) {
             const questions =
-                (args.questions as QuestionnaireToolParams["questions"]) || [];
+                (args.questions as QuestionnaireToolParams["questions"]) ?? [];
             const count = questions.length;
             const labels = questions
                 .map((question) => question.label || question.id)
@@ -96,8 +96,12 @@ export default function question(pi: ExtensionAPI): void {
         renderResult(result, _options, theme, _context) {
             const details = result.details as QuestionnaireResult | undefined;
             if (!details) {
-                const text = result.content[0];
-                return new Text(text?.type === "text" ? text.text : "", 0, 0);
+                const textBlock = result.content[0];
+                return new Text(
+                    textBlock?.type === "text" ? textBlock.text : "",
+                    0,
+                    0,
+                );
             }
             if (details.cancelled) {
                 return new Text(theme.fg("warning", "Cancelled"), 0, 0);
