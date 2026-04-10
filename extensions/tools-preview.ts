@@ -34,7 +34,7 @@ function previewModeStore(): {
 }
 
 export function getPreviewMode(): PreviewMode {
-    return previewModeStore()[PREVIEW_MODE_GLOBAL_KEY] ?? "compact";
+    return previewModeStore()[PREVIEW_MODE_GLOBAL_KEY] ?? "preview";
 }
 
 export function setPreviewMode(mode: PreviewMode): void {

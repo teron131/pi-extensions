@@ -1,7 +1,9 @@
 /**
  * Tools TUI Extension
  *
- * Cycles every tool row through three output lengths:
+ * Cycles every tool row through three output lengths.
+ * Default mode: preview (up to 8 lines).
+ *
  * - compact: one line
  * - preview: up to 8 lines
  * - full: full output
@@ -43,7 +45,7 @@ import {
     renderResultPreview,
     setPreviewMode,
     type ToolResultLike,
-} from "./tool-preview.js";
+} from "./tools-preview.js";
 
 type ToolDefinitionLike = ToolDefinition;
 
@@ -435,7 +437,7 @@ export default async function toolsTuiExtension(pi: ExtensionAPI) {
     });
 
     pi.on("session_start", async (_event, ctx) => {
-        const savedMode = getSavedMode(ctx) ?? "compact";
+        const savedMode = getSavedMode(ctx) ?? "preview";
         setPreviewMode(savedMode);
         syncUiState(ctx.ui);
         installTerminalListener(pi, ctx);
@@ -443,7 +445,7 @@ export default async function toolsTuiExtension(pi: ExtensionAPI) {
     });
 
     pi.on("session_tree", async (_event, ctx) => {
-        const savedMode = getSavedMode(ctx) ?? "compact";
+        const savedMode = getSavedMode(ctx) ?? "preview";
         setPreviewMode(savedMode);
         syncUiState(ctx.ui);
         installTerminalListener(pi, ctx);
