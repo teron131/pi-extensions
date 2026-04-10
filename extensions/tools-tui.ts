@@ -19,8 +19,10 @@
  * - tools registered outside replayable extension factories/handlers, or tools whose meaningful output only exists in custom non-text renderers, may still need explicit integration
  */
 
+import { readFileSync, writeFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type {
     ExtensionAPI,
@@ -353,6 +355,8 @@ async function registerWrappedTools(
     }
 }
 
+const CONFIG_FILE = join(homedir(), ".pi", "tools-tui-mode");
+
 function getSavedMode(ctx: SessionContextLike): PreviewMode | undefined {
     const branch = ctx.sessionManager.getBranch();
     for (let index = branch.length - 1; index >= 0; index -= 1) {
@@ -364,6 +368,19 @@ function getSavedMode(ctx: SessionContextLike): PreviewMode | undefined {
             }
         }
     }
+
+    // Fall back to globally persisted mode
+    try {
+        const globalMode = readFileSync(CONFIG_FILE, "utf-8").trim();
+        if (
+            globalMode === "preview" ||
+            globalMode === "compact" ||
+            globalMode === "full"
+        ) {
+            return globalMode as PreviewMode;
+        }
+    } catch {}
+
     return;
 }
 
@@ -395,7 +412,11 @@ function syncUiState(ctx: SessionContextLike): void {
 }
 
 function persistMode(pi: ExtensionAPI): void {
-    pi.appendEntry(STATE_CUSTOM_TYPE, { mode: getPreviewMode() });
+    const mode = getPreviewMode();
+    pi.appendEntry(STATE_CUSTOM_TYPE, { mode });
+    try {
+        writeFileSync(CONFIG_FILE, mode, "utf-8");
+    } catch {}
 }
 
 function applyMode(
