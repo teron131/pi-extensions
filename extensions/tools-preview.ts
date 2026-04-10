@@ -62,60 +62,164 @@ function splitLines(text: string): string[] {
     return normalized ? normalized.split("\n") : [];
 }
 
-function summarizeArgs(args: unknown): string {
+function summarizeText(
+    value: unknown,
+    maxWidth = CALL_PREVIEW_CHARS,
+): string | undefined {
+    if (typeof value !== "string") {
+        return;
+    }
+
+    const normalized = value.trim().replace(/\s+/g, " ");
+    return normalized ? truncateToWidth(normalized, maxWidth) : undefined;
+}
+
+function summarizePath(value: unknown, maxWidth = 48): string | undefined {
+    const text = summarizeText(value, CALL_PREVIEW_CHARS);
+    if (!text) {
+        return;
+    }
+
+    return truncateToWidth(shortenHomePath(text), maxWidth);
+}
+
+function summarizeQuoted(value: unknown, maxWidth = 32): string | undefined {
+    const text = summarizeText(value, maxWidth - 2);
+    return text ? `"${text}"` : undefined;
+}
+
+function summarizeLineRange(
+    record: Record<string, unknown>,
+): string | undefined {
+    const offset =
+        typeof record.offset === "number" && Number.isFinite(record.offset)
+            ? Math.max(1, Math.trunc(record.offset))
+            : undefined;
+    const limit =
+        typeof record.limit === "number" && Number.isFinite(record.limit)
+            ? Math.max(1, Math.trunc(record.limit))
+            : undefined;
+
+    if (offset !== undefined && limit !== undefined) {
+        return limit === 1 ? `L${offset}` : `L${offset}-${offset + limit - 1}`;
+    }
+    if (offset !== undefined) {
+        return `L${offset}+`;
+    }
+    if (limit !== undefined) {
+        return `${limit} line${limit === 1 ? "" : "s"}`;
+    }
+
+    return;
+}
+
+function summarizeLineCount(value: unknown): string | undefined {
+    if (typeof value !== "string") {
+        return;
+    }
+
+    const lines = splitLines(value);
+    return `${lines.length} line${lines.length === 1 ? "" : "s"}`;
+}
+
+function joinSummaryParts(parts: Array<string | undefined>): string {
+    return parts.filter((part): part is string => Boolean(part)).join(" · ");
+}
+
+function summarizeGenericArgs(record: Record<string, unknown>): string {
+    const edits =
+        Array.isArray(record.edits) && record.edits.length > 0
+            ? `${record.edits.length} edit${record.edits.length === 1 ? "" : "s"}`
+            : undefined;
+
+    return joinSummaryParts([
+        summarizeText(record.command, 56),
+        summarizePath(record.path),
+        summarizeQuoted(record.pattern),
+        summarizeText(record.glob, 24),
+        summarizeText(record.query, 32),
+        summarizeText(record.message, 32),
+        summarizeText(record.text, 32),
+        edits,
+    ]);
+}
+
+function summarizeArgs(toolName: string, args: unknown): string {
     if (!args || typeof args !== "object") {
         return "";
     }
 
     const record = args as Record<string, unknown>;
-    const parts: string[] = [];
 
-    const command = record.command;
-    if (typeof command === "string" && command.trim()) {
-        parts.push(truncateToWidth(command.trim(), CALL_PREVIEW_CHARS));
+    switch (toolName) {
+        case "read":
+        case "hashline_read":
+            return joinSummaryParts([
+                summarizePath(record.path),
+                summarizeLineRange(record),
+            ]);
+        case "write":
+            return joinSummaryParts([
+                summarizePath(record.path),
+                summarizeLineCount(record.content),
+            ]);
+        case "edit":
+        case "hashline_edit":
+            return joinSummaryParts([
+                summarizePath(record.path),
+                Array.isArray(record.edits)
+                    ? `${record.edits.length} edit${record.edits.length === 1 ? "" : "s"}`
+                    : undefined,
+            ]);
+        case "grep":
+            return joinSummaryParts([
+                summarizeQuoted(record.pattern),
+                summarizePath(record.path),
+                summarizeText(record.glob, 24),
+            ]);
+        case "find":
+            return joinSummaryParts([
+                summarizeText(record.pattern, 28),
+                summarizePath(record.path),
+            ]);
+        case "bash":
+            return joinSummaryParts([
+                summarizeText(record.command, 56),
+                typeof record.timeout === "number"
+                    ? `${record.timeout}s`
+                    : undefined,
+            ]);
+        case "question":
+            return Array.isArray(record.questions)
+                ? `${record.questions.length} question${record.questions.length === 1 ? "" : "s"}`
+                : summarizeGenericArgs(record);
+        case "subagent":
+            if (Array.isArray(record.tasks)) {
+                return `${record.tasks.length} parallel task${record.tasks.length === 1 ? "" : "s"}`;
+            }
+            if (Array.isArray(record.chain)) {
+                return `${record.chain.length} chained step${record.chain.length === 1 ? "" : "s"}`;
+            }
+            return joinSummaryParts([
+                summarizeText(record.agent, 20),
+                summarizeText(record.action, 20),
+            ]);
+        case "todo":
+            return joinSummaryParts([
+                summarizeText(record.action, 16),
+                Array.isArray(record.items)
+                    ? `${record.items.length} item${record.items.length === 1 ? "" : "s"}`
+                    : undefined,
+            ]);
+        case "codemap":
+            return summarizePath(record.path) ?? "repo";
+        default:
+            break;
     }
 
-    const filePath = record.path;
-    if (typeof filePath === "string" && filePath.trim()) {
-        parts.push(
-            shortenHomePath(
-                truncateToWidth(filePath.trim(), CALL_PREVIEW_CHARS),
-            ),
-        );
-    }
-
-    const pattern = record.pattern;
-    if (parts.length === 0 && typeof pattern === "string" && pattern.trim()) {
-        parts.push(truncateToWidth(pattern.trim(), CALL_PREVIEW_CHARS));
-    }
-
-    const text = record.text;
-    if (parts.length === 0 && typeof text === "string" && text.trim()) {
-        parts.push(truncateToWidth(text.trim(), CALL_PREVIEW_CHARS));
-    }
-
-    const message = record.message;
-    if (parts.length === 0 && typeof message === "string" && message.trim()) {
-        parts.push(truncateToWidth(message.trim(), CALL_PREVIEW_CHARS));
-    }
-
-    const query = record.query;
-    if (parts.length === 0 && typeof query === "string" && query.trim()) {
-        parts.push(truncateToWidth(query.trim(), CALL_PREVIEW_CHARS));
-    }
-
-    const glob = record.glob;
-    if (parts.length === 0 && typeof glob === "string" && glob.trim()) {
-        parts.push(truncateToWidth(glob.trim(), CALL_PREVIEW_CHARS));
-    }
-
-    const edits = record.edits;
-    if (parts.length === 0 && Array.isArray(edits)) {
-        parts.push(`${edits.length} block${edits.length === 1 ? "" : "s"}`);
-    }
-
-    if (parts.length > 0) {
-        return parts.join(" ");
+    const summary = summarizeGenericArgs(record);
+    if (summary) {
+        return summary;
     }
 
     try {
@@ -130,7 +234,7 @@ export function renderCallPreview(
     args: unknown,
     theme: Theme,
 ): Text {
-    const summary = summarizeArgs(args);
+    const summary = summarizeArgs(toolName, args);
     const title = theme.fg("toolTitle", theme.bold(toolName));
     if (!summary) {
         return new Text(title, 0, 0);
