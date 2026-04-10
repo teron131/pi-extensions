@@ -166,7 +166,7 @@ function getDiffText(result: ToolResultLike): string | undefined {
     return diff;
 }
 
-function countDiffChanges(diff: string): {
+export function countDiffChanges(diff: string): {
     additions: number;
     removals: number;
 } {
@@ -183,6 +183,17 @@ function countDiffChanges(diff: string): {
     }
 
     return { additions, removals };
+}
+
+export function formatDiffSummary(
+    theme: Theme,
+    counts: { additions: number; removals: number },
+    separator = " ",
+): string {
+    let output = theme.fg("success", `+${counts.additions}`);
+    output += theme.fg("muted", separator);
+    output += theme.fg("error", `-${counts.removals}`);
+    return output;
 }
 
 function renderDiffLine(line: string, theme: Theme, mode: PreviewMode): string {
@@ -212,11 +223,9 @@ function renderDiffPreview(
     hasTruncation: boolean,
 ): string {
     const lines = splitLines(diff);
-    const { additions, removals } = countDiffChanges(diff);
+    const counts = countDiffChanges(diff);
 
-    let output = theme.fg("success", `+${additions}`);
-    output += theme.fg("muted", " / ");
-    output += theme.fg("error", `-${removals}`);
+    let output = formatDiffSummary(theme, counts);
     if (hasTruncation) {
         output += theme.fg("warning", " [truncated]");
     }

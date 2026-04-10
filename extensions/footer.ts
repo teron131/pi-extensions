@@ -11,11 +11,14 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 
+import { countDiffChanges, formatDiffSummary } from "./tool-preview.js";
+
 type MessagePayload = {
     role: string;
     timestamp?: number;
     stopReason?: string;
     toolName?: string;
+    details?: unknown;
 };
 
 type SessionEntryPayload = {
@@ -199,6 +202,60 @@ function formatRunTime(ms: number): string {
     return `${minutesText}:${secondsText}`;
 }
 
+function getToolResultDiff(details: unknown): string | null {
+    if (!details || typeof details !== "object") {
+        return null;
+    }
+
+    const diff = (details as { diff?: unknown }).diff;
+    if (typeof diff !== "string" || !diff.trim()) {
+        return null;
+    }
+
+    return diff;
+}
+
+function getCurrentTurnHashlineEditCounts(
+    branch: SessionEntryPayload[],
+): { additions: number; removals: number } | null {
+    let additions = 0;
+    let removals = 0;
+
+    for (let entryIndex = branch.length - 1; entryIndex >= 0; entryIndex -= 1) {
+        const entry = branch[entryIndex] as SessionEntryPayload;
+        if (entry.type !== "message" || !entry.message) {
+            continue;
+        }
+
+        const message = entry.message as MessagePayload;
+        if (message.role === "user") {
+            break;
+        }
+
+        if (
+            message.role !== "toolResult" ||
+            message.toolName !== "hashline_edit"
+        ) {
+            continue;
+        }
+
+        const diff = getToolResultDiff(message.details);
+        if (!diff) {
+            continue;
+        }
+
+        const counts = countDiffChanges(diff);
+        additions += counts.additions;
+        removals += counts.removals;
+    }
+
+    if (!additions && !removals) {
+        return null;
+    }
+
+    return { additions, removals };
+}
+
 export default function (pi: ExtensionAPI) {
     const seenMessageIds = new Set<string>();
     const sessionRunTimes = new Map<string, number>();
@@ -338,7 +395,12 @@ export default function (pi: ExtensionAPI) {
                     }
 
                     const systemPrompt = ctx.getSystemPrompt();
-                    const systemPromptSide = `📝 ${systemPrompt.length}`;
+                    const systemPromptSide = theme.fg(
+                        "dim",
+                        `📝 ${systemPrompt.length}`,
+                    );
+                    const hashlineEditCounts =
+                        getCurrentTurnHashlineEditCounts(branch);
 
                     let sessionSide = "";
                     let isRunning = false;
@@ -381,8 +443,17 @@ export default function (pi: ExtensionAPI) {
 
                     isRunningState = isRunning;
 
-                    const timeStr = formatRunTime(currentRunTimeMs);
-                    sessionSide = `${systemPromptSide}  ⏳ ${timeStr}`;
+                    const timeStr = theme.fg(
+                        "dim",
+                        `⏳ ${formatRunTime(currentRunTimeMs)}`,
+                    );
+                    const sessionParts = [systemPromptSide, timeStr];
+                    if (hashlineEditCounts) {
+                        sessionParts.unshift(
+                            formatDiffSummary(theme, hashlineEditCounts),
+                        );
+                    }
+                    sessionSide = sessionParts.join(theme.fg("dim", "  "));
 
                     // --- BOTTOM LINE (Stats & Statuses) ---
                     const tokensDisplay =
@@ -428,9 +499,7 @@ export default function (pi: ExtensionAPI) {
 
                     return renderFooterBlockLines(width, {
                         topLeft: theme.fg("dim", modelSide),
-                        topRight: sessionSide
-                            ? theme.fg("dim", sessionSide)
-                            : "",
+                        topRight: sessionSide,
                         bottomLeft: statsLeft,
                         bottomRight: statusSide
                             ? theme.fg("dim", statusSide)
