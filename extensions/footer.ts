@@ -4,6 +4,9 @@
  * Replaces the built-in footer with a compact session stats view that keeps cache-read visible.
  */
 
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type {
     ExtensionAPI,
@@ -11,14 +14,13 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 
-import { countDiffChanges, formatDiffSummary } from "./tool-preview.js";
+import { formatDiffSummary } from "./tool-preview.js";
 
 type MessagePayload = {
     role: string;
     timestamp?: number;
     stopReason?: string;
     toolName?: string;
-    details?: unknown;
 };
 
 type SessionEntryPayload = {
@@ -202,49 +204,84 @@ function formatRunTime(ms: number): string {
     return `${minutesText}:${secondsText}`;
 }
 
-function getToolResultDiff(details: unknown): string | null {
-    if (!details || typeof details !== "object") {
-        return null;
-    }
+const execFileAsync = promisify(execFile);
 
-    const diff = (details as { diff?: unknown }).diff;
-    if (typeof diff !== "string" || !diff.trim()) {
-        return null;
-    }
+type GitDiffCounts = {
+    additions: number;
+    removals: number;
+};
 
-    return diff;
-}
-
-function getCurrentTurnHashlineEditCounts(
-    branch: SessionEntryPayload[],
-): { additions: number; removals: number } | null {
+function parseGitNumstat(stdout: string): GitDiffCounts {
     let additions = 0;
     let removals = 0;
 
-    for (let entryIndex = branch.length - 1; entryIndex >= 0; entryIndex -= 1) {
-        const entry = branch[entryIndex] as SessionEntryPayload;
-        if (entry.type !== "message" || !entry.message) {
+    for (const line of stdout.split(/\r?\n/)) {
+        if (!line.trim()) {
             continue;
         }
 
-        const message = entry.message as MessagePayload;
-        if (message.role === "user") {
-            break;
+        const [addedText, removedText] = line.split("\t", 3);
+        const added = Number.parseInt(addedText, 10);
+        const removed = Number.parseInt(removedText, 10);
+
+        if (Number.isFinite(added)) {
+            additions += added;
+        }
+        if (Number.isFinite(removed)) {
+            removals += removed;
+        }
+    }
+
+    return { additions, removals };
+}
+
+async function runGit(
+    cwd: string,
+    args: string[],
+): Promise<{ code: number; stdout: string }> {
+    try {
+        const { stdout } = await execFileAsync("git", args, { cwd });
+        return {
+            code: 0,
+            stdout: String(stdout),
+        };
+    } catch (error) {
+        const code =
+            typeof error === "object" &&
+            error !== null &&
+            "code" in error &&
+            typeof error.code === "number"
+                ? error.code
+                : 1;
+        const stdout =
+            typeof error === "object" && error !== null && "stdout" in error
+                ? String(error.stdout ?? "")
+                : "";
+        return { code, stdout };
+    }
+}
+
+async function getGitDiffCounts(cwd: string): Promise<GitDiffCounts | null> {
+    const headResult = await runGit(cwd, ["rev-parse", "--verify", "HEAD"]);
+
+    const diffArgs =
+        headResult.code === 0
+            ? [["diff", "--numstat", "HEAD", "--"]]
+            : [
+                  ["diff", "--numstat", "--cached", "--"],
+                  ["diff", "--numstat", "--", "."],
+              ];
+
+    let additions = 0;
+    let removals = 0;
+
+    for (const args of diffArgs) {
+        const result = await runGit(cwd, args);
+        if (result.code !== 0) {
+            return null;
         }
 
-        if (
-            message.role !== "toolResult" ||
-            message.toolName !== "hashline_edit"
-        ) {
-            continue;
-        }
-
-        const diff = getToolResultDiff(message.details);
-        if (!diff) {
-            continue;
-        }
-
-        const counts = countDiffChanges(diff);
+        const counts = parseGitNumstat(result.stdout);
         additions += counts.additions;
         removals += counts.removals;
     }
@@ -279,21 +316,54 @@ export default function (pi: ExtensionAPI) {
 
     const applyFooter = (ctx: ExtensionContext) => {
         ctx.ui.setFooter((tui, theme, footerData) => {
-            const unsubscribeBranch = footerData.onBranchChange(() =>
-                tui.requestRender(),
-            );
             let isRunningState = false;
+            let gitDiffCounts: GitDiffCounts | null = null;
+            let isRefreshingGitDiff = false;
+
+            const refreshGitDiffCounts = async () => {
+                if (isRefreshingGitDiff) {
+                    return;
+                }
+
+                isRefreshingGitDiff = true;
+                try {
+                    const nextCounts = await getGitDiffCounts(ctx.cwd);
+                    const countsChanged =
+                        nextCounts?.additions !== gitDiffCounts?.additions ||
+                        nextCounts?.removals !== gitDiffCounts?.removals;
+
+                    gitDiffCounts = nextCounts;
+                    if (countsChanged) {
+                        tui.requestRender();
+                    }
+                } finally {
+                    isRefreshingGitDiff = false;
+                }
+            };
+
+            void refreshGitDiffCounts();
+            const unsubscribeBranch = footerData.onBranchChange(() => {
+                tui.requestRender();
+                void refreshGitDiffCounts();
+            });
+
             // Update runtime display periodically only when actively running
             const interval = setInterval(() => {
                 if (isRunningState) {
                     tui.requestRender();
                 }
             }, 1000);
+            const gitDiffInterval = setInterval(() => {
+                if (!isRunningState) {
+                    void refreshGitDiffCounts();
+                }
+            }, 3000);
 
             return {
                 dispose: () => {
                     unsubscribeBranch();
                     clearInterval(interval);
+                    clearInterval(gitDiffInterval);
                 },
                 invalidate() {},
                 render(width: number): string[] {
@@ -399,8 +469,6 @@ export default function (pi: ExtensionAPI) {
                         "dim",
                         `📝 ${systemPrompt.length}`,
                     );
-                    const hashlineEditCounts =
-                        getCurrentTurnHashlineEditCounts(branch);
 
                     let sessionSide = "";
                     let isRunning = false;
@@ -448,9 +516,9 @@ export default function (pi: ExtensionAPI) {
                         `⏳ ${formatRunTime(currentRunTimeMs)}`,
                     );
                     const sessionParts = [systemPromptSide, timeStr];
-                    if (hashlineEditCounts) {
+                    if (gitDiffCounts) {
                         sessionParts.unshift(
-                            formatDiffSummary(theme, hashlineEditCounts),
+                            formatDiffSummary(theme, gitDiffCounts),
                         );
                     }
                     sessionSide = sessionParts.join(theme.fg("dim", "  "));
