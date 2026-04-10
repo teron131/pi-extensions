@@ -480,12 +480,6 @@ export default function (pi: ExtensionAPI) {
                                 : `  🧠${currentThinkingLevel}`;
                     }
 
-                    const systemPrompt = ctx.getSystemPrompt();
-                    const systemPromptSide = theme.fg(
-                        "dim",
-                        `📝${systemPrompt.length}`,
-                    );
-
                     let sessionSide = "";
                     let isRunning = false;
 
@@ -531,7 +525,7 @@ export default function (pi: ExtensionAPI) {
                         "dim",
                         `⏳${formatRunTime(currentRunTimeMs)}`,
                     );
-                    const sessionParts = [systemPromptSide, timeStr];
+                    const sessionParts = [timeStr];
                     if (gitDiffCounts) {
                         sessionParts.unshift(
                             formatDiffSummary(theme, gitDiffCounts, " "),
