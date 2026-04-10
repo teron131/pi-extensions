@@ -15,7 +15,7 @@ import { Text } from "@mariozechner/pi-tui";
 import {
     getPreviewMode,
     renderCallPreview,
-    renderResultPreview,
+    renderResultPreviewLines,
     type ToolResultLike,
 } from "../tools-preview.js";
 import {
@@ -820,11 +820,19 @@ export function registerHashlineEditTool(pi: ExtensionAPI): void {
             },
             renderResult(result, _options, theme) {
                 const mode = getPreviewMode();
-                return new Text(
-                    renderResultPreview(result as ToolResultLike, theme, mode),
-                    0,
-                    0,
-                );
+                return {
+                    render: (width: number) =>
+                        renderResultPreviewLines(
+                            result as ToolResultLike,
+                            theme,
+                            mode,
+                            false,
+                            "hashline_edit",
+                            undefined,
+                            width,
+                        ),
+                    invalidate: () => {},
+                };
             },
         }),
     );

@@ -19,7 +19,7 @@ import { Text } from "@mariozechner/pi-tui";
 import {
     getPreviewMode,
     renderCallPreview,
-    renderResultPreview,
+    renderResultPreviewLines,
     type ToolResultLike,
 } from "../tools-preview.js";
 import {
@@ -149,16 +149,25 @@ export function registerHashlineReadTool(pi: ExtensionAPI): void {
                     ctx,
                 );
             },
-            renderCall(args, theme) {
+            renderCall(args, theme, context) {
+                (context.state as { args?: unknown }).args = args;
                 return renderCallPreview("hashline_read", args, theme);
             },
-            renderResult(result, _options, theme) {
+            renderResult(result, _options, theme, context) {
                 const mode = getPreviewMode();
-                return new Text(
-                    renderResultPreview(result as ToolResultLike, theme, mode),
-                    0,
-                    0,
-                );
+                return {
+                    render: (width: number) =>
+                        renderResultPreviewLines(
+                            result as ToolResultLike,
+                            theme,
+                            mode,
+                            false,
+                            "hashline_read",
+                            (context.state as { args?: unknown }).args,
+                            width,
+                        ),
+                    invalidate: () => {},
+                };
             },
         }),
     );

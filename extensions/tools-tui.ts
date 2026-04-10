@@ -45,7 +45,7 @@ import {
     nextMode,
     type PreviewMode,
     renderCallPreview,
-    renderResultPreview,
+    renderResultPreviewLines,
     setPreviewMode,
     type ToolResultLike,
 } from "./tools-preview.js";
@@ -312,7 +312,8 @@ async function registerWrappedTools(
                         ctx,
                     );
                 },
-                renderCall(args, theme) {
+                renderCall(args, theme, context) {
+                    (context.state as { args?: unknown }).args = args;
                     return renderCallPreview(
                         tool.label ?? tool.name,
                         args,
@@ -337,16 +338,21 @@ async function registerWrappedTools(
                             context,
                         );
                     }
-                    return new Text(
-                        renderResultPreview(
-                            result as ToolResultLike,
-                            theme,
-                            mode,
-                            hasTruncation((result as ToolResultLike).details),
-                        ),
-                        0,
-                        0,
-                    );
+                    return {
+                        render: (width: number) =>
+                            renderResultPreviewLines(
+                                result as ToolResultLike,
+                                theme,
+                                mode,
+                                hasTruncation(
+                                    (result as ToolResultLike).details,
+                                ),
+                                tool.name,
+                                (context.state as { args?: unknown }).args,
+                                width,
+                            ),
+                        invalidate: () => {},
+                    };
                 },
             });
         }

@@ -23,6 +23,7 @@ const PREVIEW_MODES: PreviewMode[] = ["compact", "preview", "full"];
 const PREVIEW_LINE_LIMIT = 8;
 const CALL_PREVIEW_CHARS = 80;
 const RESULT_PREVIEW_CHARS = 120;
+const READ_RESULT_PREVIEW_CHARS = 72;
 const PREVIEW_MODE_GLOBAL_KEY = "__pi_tools_tui_preview_mode";
 
 function previewModeStore(): {
@@ -253,6 +254,93 @@ function getTextContent(result: ToolResultLike): string | undefined {
     return parts.length > 0 ? parts.join("\n") : undefined;
 }
 
+function splitPreviewNotice(text: string): { body: string; notice?: string } {
+    const match = text.match(
+        /^(.*?)(\n\n\[(?:Showing lines |\d+ more lines in file\.|Line \d+ is ).*)$/s,
+    );
+    if (match) {
+        return { body: match[1], notice: match[2] };
+    }
+    return { body: text };
+}
+
+function formatNumberedLines(lines: string[], startLine: number): string {
+    const lineNumberWidth = String(
+        startLine + Math.max(lines.length - 1, 0),
+    ).length;
+    return lines
+        .map(
+            (line, index) =>
+                `${String(startLine + index).padStart(lineNumberWidth, " ")}  ${line}`,
+        )
+        .join("\n");
+}
+
+function stripHashlinePrefixes(text: string): string {
+    const { body, notice } = splitPreviewNotice(text);
+    const lines = splitLines(body);
+    const numberedLines = lines.map((line) => {
+        const match = line.match(/^(\d+)#[^:]+:(.*)$/);
+        return match ? { number: match[1], content: match[2] } : undefined;
+    });
+
+    const lineNumberWidth = numberedLines.reduce(
+        (width, item) => (item ? Math.max(width, item.number.length) : width),
+        0,
+    );
+
+    const formattedBody = lines
+        .map((line, index) => {
+            const numberedLine = numberedLines[index];
+            if (!numberedLine) {
+                return line;
+            }
+
+            const paddedNumber = numberedLine.number.padStart(
+                lineNumberWidth,
+                " ",
+            );
+            return `${paddedNumber}  ${numberedLine.content}`;
+        })
+        .join("\n");
+
+    return notice ? `${formattedBody}${notice}` : formattedBody;
+}
+
+function numberReadLines(text: string, args: unknown): string {
+    const startLine =
+        args &&
+        typeof args === "object" &&
+        typeof (args as { offset?: unknown }).offset === "number" &&
+        Number.isFinite((args as { offset?: number }).offset)
+            ? Math.max(1, Math.trunc((args as { offset?: number }).offset ?? 1))
+            : 1;
+
+    const { body, notice } = splitPreviewNotice(text);
+    const lines = splitLines(body);
+    if (lines.length === 0) {
+        return text;
+    }
+
+    const formattedBody = formatNumberedLines(lines, startLine);
+    return notice ? `${formattedBody}${notice}` : formattedBody;
+}
+
+function normalizePreviewText(
+    toolName: string | undefined,
+    text: string,
+    args?: unknown,
+): string {
+    if (toolName === "hashline_read") {
+        return stripHashlinePrefixes(text);
+    }
+    if (toolName === "read") {
+        return numberReadLines(text, args);
+    }
+
+    return text;
+}
+
 function hasImageContent(result: ToolResultLike): boolean {
     return result.content.some((content) => content.type === "image");
 }
@@ -300,9 +388,24 @@ export function formatDiffSummary(
     return output;
 }
 
-function renderDiffLine(line: string, theme: Theme, mode: PreviewMode): string {
-    const content =
-        mode === "full" ? line : truncateToWidth(line, RESULT_PREVIEW_CHARS);
+function getEffectivePreviewWidth(
+    width: number | undefined,
+    toolName?: string,
+): number {
+    const maxWidth = getPreviewLineWidth(toolName);
+    if (width === undefined || width <= 0) {
+        return maxWidth;
+    }
+    return Math.max(8, Math.min(maxWidth, width));
+}
+
+function renderDiffLine(
+    line: string,
+    theme: Theme,
+    mode: PreviewMode,
+    width?: number,
+): string {
+    const content = truncateToWidth(line, getEffectivePreviewWidth(width));
 
     if (line.startsWith("+") && !line.startsWith("+++")) {
         return theme.fg("success", content);
@@ -325,6 +428,7 @@ function renderDiffPreview(
     theme: Theme,
     mode: PreviewMode,
     hasTruncation: boolean,
+    width?: number,
 ): string {
     const lines = splitLines(diff);
     const counts = countDiffChanges(diff);
@@ -340,7 +444,7 @@ function renderDiffPreview(
 
     const limit = mode === "preview" ? PREVIEW_LINE_LIMIT : undefined;
     const visibleLines = limit === undefined ? lines : lines.slice(0, limit);
-    output += `\n${visibleLines.map((line) => renderDiffLine(line, theme, mode)).join("\n")}`;
+    output += `\n${visibleLines.map((line) => renderDiffLine(line, theme, mode, width)).join("\n")}`;
 
     if (limit !== undefined && lines.length > limit) {
         output += `\n${theme.fg("muted", `… ${lines.length - limit} more diff line${lines.length - limit === 1 ? "" : "s"}`)}`;
@@ -349,18 +453,29 @@ function renderDiffPreview(
     return output;
 }
 
+function getPreviewLineWidth(toolName: string | undefined): number {
+    if (toolName === "read" || toolName === "hashline_read") {
+        return READ_RESULT_PREVIEW_CHARS;
+    }
+    return RESULT_PREVIEW_CHARS;
+}
+
 function renderPreviewLines(
     text: string,
     theme: Theme,
     mode: PreviewMode,
+    toolName?: string,
+    width?: number,
 ): string {
     const lines = splitLines(text);
     if (lines.length === 0) {
         return "";
     }
 
+    const previewLineWidth = getEffectivePreviewWidth(width, toolName);
+
     if (mode === "compact") {
-        const firstLine = truncateToWidth(lines[0], RESULT_PREVIEW_CHARS);
+        const firstLine = truncateToWidth(lines[0], previewLineWidth);
         const suffix = lines.length > 1 ? theme.fg("muted", " …") : "";
         return ` ${theme.fg("toolOutput", firstLine)}${suffix}`;
     }
@@ -368,12 +483,7 @@ function renderPreviewLines(
     const limit = mode === "preview" ? PREVIEW_LINE_LIMIT : undefined;
     const visibleLines = limit === undefined ? lines : lines.slice(0, limit);
     const renderedLines = visibleLines.map((line) =>
-        mode === "full"
-            ? theme.fg("toolOutput", line)
-            : theme.fg(
-                  "toolOutput",
-                  truncateToWidth(line, RESULT_PREVIEW_CHARS),
-              ),
+        theme.fg("toolOutput", truncateToWidth(line, previewLineWidth)),
     );
 
     let output = `\n${renderedLines.join("\n")}`;
@@ -388,10 +498,13 @@ export function renderResultPreview(
     theme: Theme,
     mode: PreviewMode,
     hasTruncation = false,
+    toolName?: string,
+    args?: unknown,
+    width?: number,
 ): string {
     const diff = getDiffText(result);
     if (diff) {
-        return renderDiffPreview(diff, theme, mode, hasTruncation);
+        return renderDiffPreview(diff, theme, mode, hasTruncation, width);
     }
 
     const text = getTextContent(result);
@@ -402,7 +515,8 @@ export function renderResultPreview(
         return theme.fg("success", "done");
     }
 
-    const lines = splitLines(text);
+    const normalizedText = normalizePreviewText(toolName, text, args);
+    const lines = splitLines(normalizedText);
     if (lines.length === 0) {
         return theme.fg("success", "done");
     }
@@ -410,7 +524,10 @@ export function renderResultPreview(
     if (mode === "compact") {
         let output = theme.fg(
             "toolOutput",
-            truncateToWidth(lines[0], RESULT_PREVIEW_CHARS),
+            truncateToWidth(
+                lines[0],
+                getEffectivePreviewWidth(width, toolName),
+            ),
         );
         if (lines.length > 1) {
             output += theme.fg("muted", " …");
@@ -428,8 +545,30 @@ export function renderResultPreview(
     if (hasTruncation) {
         output += theme.fg("warning", " [truncated]");
     }
-    output += renderPreviewLines(text, theme, mode);
+    output += renderPreviewLines(normalizedText, theme, mode, toolName, width);
     return output;
+}
+
+export function renderResultPreviewLines(
+    result: ToolResultLike,
+    theme: Theme,
+    mode: PreviewMode,
+    hasTruncation = false,
+    toolName?: string,
+    args?: unknown,
+    width?: number,
+): string[] {
+    return splitLines(
+        renderResultPreview(
+            result,
+            theme,
+            mode,
+            hasTruncation,
+            toolName,
+            args,
+            width,
+        ),
+    );
 }
 
 export default async function toolPreviewHelperExtension(
