@@ -21,7 +21,7 @@ import {
     renderCallPreview,
     renderResultPreview,
     type ToolResultLike,
-} from "../tool-preview.js";
+} from "../tools-preview.js";
 import {
     createTextToolResult,
     formatHashlineLines,
