@@ -22,7 +22,6 @@
 **Verification**
 
 - JS/TS projects: run the repo's configured build, typecheck, or equivalent validation command using the repo's existing package manager. Prefer the `build` script when present.
-  
 
 **Delegate subagents**
 
@@ -33,7 +32,6 @@
 - Run independent tasks in parallel (`tasks` array) to save time, or use `chain` for sequential exploration.
 - Give subagents explicit ownership, scope, constraints, success criteria, and output format to prevent them from drifting.
 - Repo agents may exist, such as `Explorer` for internal discovery, `Researcher` for external/current info, and `Planner` for analysis-only decomposition in OpenCode.
-  
 - Keep immediate blocking implementation on the main thread unless the write is clearly separable.
 - Synthesize subagent results centrally before presenting them as final.
 
@@ -65,7 +63,6 @@ Practical guidance:
 - Parallelize independent reads and searches.
 - Scope searches first, for example `rg -g '*.ts' pattern src/`, then widen.
 - Predict your workflow: use the standard `read` tool if you think the file is not for immediate or frequent editing. Otherwise, use `hashline_read` because `hashline_edit` is better but requires those anchors first.
-
 - Use `ast-grep_*` for structural search and syntax-aware refactors.
 - Use `grep-app_*` for real-world usage patterns, not official docs.
 - Prefer platform MCP docs/tools for product-specific work when available.
