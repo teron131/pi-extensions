@@ -33,7 +33,7 @@ The `subagent` setup also includes supporting agent and prompt files; copy those
 If you want Pi to load this repo's files directly instead of relying on copied sync output, run:
 
 ```bash
-bash scripts/link_pi_dev.sh
+bash pi_symlinks.sh
 ```
 
 This links the repo-owned Pi source paths into `~/.pi/agent/`:
@@ -43,7 +43,7 @@ This links the repo-owned Pi source paths into `~/.pi/agent/`:
 - `subagent/prompts/` -> `~/.pi/agent/prompts`
 - `AGENTS.md` -> `~/.pi/agent/AGENTS.md`
 
-The script backs up any existing targets first and intentionally leaves local/runtime files alone:
+The script replaces any existing linked target directly and intentionally leaves local/runtime files alone:
 
 - `auth.json`
 - `sessions/`

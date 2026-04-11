@@ -2,18 +2,24 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PI_REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PI_ROOT="${HOME}/.pi/agent"
-TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-BACKUP_ROOT="${PI_ROOT}/.backup-before-dev-links-${TIMESTAMP}"
 
-backup_target() {
-  local target="$1"
+find_pi_repo_root() {
+  local candidate
 
-  mkdir -p "${BACKUP_ROOT}"
-  mv "${target}" "${BACKUP_ROOT}/"
-  echo "Backed up: ${target} -> ${BACKUP_ROOT}/"
+  for candidate in "${SCRIPT_DIR}" "${SCRIPT_DIR}/.." "${SCRIPT_DIR}/../.."; do
+    candidate="$(cd "${candidate}" && pwd)"
+    if [ -d "${candidate}/extensions" ] && [ -d "${candidate}/subagent" ] && [ -f "${candidate}/AGENTS.md" ]; then
+      echo "${candidate}"
+      return
+    fi
+  done
+
+  echo "Could not determine Pi repo root from script location: ${SCRIPT_DIR}" >&2
+  exit 1
 }
+
+PI_REPO_ROOT="$(find_pi_repo_root)"
 
 link_path() {
   local source="$1"
@@ -30,7 +36,8 @@ link_path() {
   fi
 
   if [ -e "${target}" ] || [ -L "${target}" ]; then
-    backup_target "${target}"
+    rm -rf "${target}"
+    echo "Removed existing target: ${target}"
   fi
 
   ln -s "${source}" "${target}"
