@@ -27,3 +27,28 @@ To load these into Pi, put them in `~/.pi/agent/extensions/`.
 **subagent** lets Pi delegate bounded work to separate specialist agents with isolated context. Many systems have subagents now, but this one is better because it makes delegation concrete and operational: discoverable agents, structured task briefs, safer project-agent loading, chain and parallel modes, streamed progress, and better handoffs between roles like explorer, planner, reviewer, and worker.
 
 The `subagent` setup also includes supporting agent and prompt files; copy those into `~/.pi/agent/agents/` and `~/.pi/agent/prompts/` if you want the included explorer/planner/reviewer/worker flow to work out of the box.
+
+## Dev Linking
+
+If you want Pi to load this repo's files directly instead of relying on copied sync output, run:
+
+```bash
+bash scripts/link_pi_dev.sh
+```
+
+This links the repo-owned Pi source paths into `~/.pi/agent/`:
+
+- `extensions/` -> `~/.pi/agent/extensions`
+- `subagent/agents/` -> `~/.pi/agent/agents`
+- `subagent/prompts/` -> `~/.pi/agent/prompts`
+- `AGENTS.md` -> `~/.pi/agent/AGENTS.md`
+
+The script backs up any existing targets first and intentionally leaves local/runtime files alone:
+
+- `auth.json`
+- `sessions/`
+- `skills/`
+- `settings.json`
+- `models.json`
+
+Git still manages the real files in this Pi repo because the symlinks point back here.
