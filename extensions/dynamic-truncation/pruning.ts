@@ -64,12 +64,7 @@ const stableSerialize = (value: unknown): string => {
         const entries = Object.entries(value as Record<string, unknown>).sort(
             ([left], [right]) => left.localeCompare(right),
         );
-        return `{${entries
-            .map(
-                ([key, entryValue]) =>
-                    `${JSON.stringify(key)}:${stableSerialize(entryValue)}`,
-            )
-            .join(",")}}`;
+        return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${stableSerialize(entryValue)}`).join(",")}}`;
     }
     return JSON.stringify(String(value));
 };

@@ -16,6 +16,8 @@ To load these into Pi, put them in `~/.pi/agent/extensions/`.
 
 **codemap** adds a deterministic `codemap` tool for repo and module analysis. Instead of relying only on freeform inspection, it runs a standardized stats pass that summarizes file layout, AST-level symbols, and import/export relationships, then truncates safely while preserving the full report in a temp file when needed.
 
+**webloader** adds a `webloader` tool that loads a URL in a fresh headless `playwright-cli` session and returns cleaned readable content, the final URL, and optional links. It is useful when you want website content without popping a visible browser window, while still using real browser loading instead of a plain HTTP fetch.
+
 **hashline** replaces Pi’s built-in `read` and `edit` tools with a hashline protocol. Instead of depending on exact old-text matches, it returns text as `LINE#ID:content` and lets edits target those anchors directly, which is better for mixed-model use because stale edits fail fast and retry cleanly.
 
 **formatter-hook** runs `hooks/formatter.sh` when Pi shuts down inside a repo that contains that script. In this repo it is meant to be a validation-step hook: run native external tools once at the end, apply auto-fixes, and then let Ruff/Biome lint act as the final check instead of behaving like an always-on LSP after every edit.

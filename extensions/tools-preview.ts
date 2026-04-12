@@ -135,10 +135,13 @@ function summarizeGenericArgs(record: Record<string, unknown>): string {
 
     return joinSummaryParts([
         summarizeText(record.command, 56),
+        summarizeText(record.url, 56),
         summarizePath(record.path),
         summarizeQuoted(record.pattern),
+        summarizeQuoted(record.selector, 28),
         summarizeText(record.glob, 24),
         summarizeText(record.query, 32),
+        summarizeText(record.format, 16),
         summarizeText(record.message, 32),
         summarizeText(record.text, 32),
         edits,
