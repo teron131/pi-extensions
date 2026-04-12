@@ -1,5 +1,4 @@
 .DS_Store
-ast-grep-mcp/
 .system/
 .emdash.json
 *cloudflare-deploy/

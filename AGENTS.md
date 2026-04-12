@@ -58,12 +58,18 @@ Default to read and search first, then edit or refactor. Use the smallest tool t
 
 Practical guidance:
 
-- Use `rg` for fast narrowing, `ast-grep_*` for syntax-aware search/refactors, and focused reads to confirm behavior.
+- Use `rg` for fast narrowing, local `ast-grep` helper/CLI for syntax-aware search/refactors, and focused reads to confirm behavior.
+- Prefer `rg` for exact text, identifiers, filenames, and quick scoping.
+- Use `codemap` for repo understanding: architecture, module boundaries, entrypoints, dependency flow, and refactor scoping.
+- Use `ast-grep` for code-shape work: finding concrete syntax patterns, confirming structural matches, and doing precise rename/refactor/codemod edits.
+- Do not use `codemap` as a substitute for structural matching, and do not use `ast-grep` as a substitute for a high-level repo map.
+- Prefer `ast-grep` for code shape: calls, definitions, structural rename, migrations, and multi-file refactors.
+- Before doing a multi-file code rewrite or rename, prefer `ast-grep` preview or a saved rule over regex replacement.
 - For exploration, repo mapping, or refactor scoping, read `skills/codemap/SKILL.md` first and use it as the first-pass architecture map before broader search.
 - Parallelize independent reads and searches.
 - Scope searches first, for example `rg -g '*.ts' pattern src/`, then widen.
 - Predict your workflow: use the standard `read` tool if you think the file is not for immediate or frequent editing. Otherwise, use `hashline_read` because `hashline_edit` is better but requires those anchors first.
-- Use `ast-grep_*` for structural search and syntax-aware refactors.
+- Use `ast-grep` via the local helper script or CLI for structural search and syntax-aware refactors.
 - Use `grep-app_*` for real-world usage patterns, not official docs.
 - Prefer platform MCP docs/tools for product-specific work when available.
 
@@ -75,7 +81,7 @@ MCP guidance:
 - Before frontend implementation or redesign, read `skills/frontend-design/SKILL.md`.
 - For frontend work, prefer `chrome-devtools` when available for interactive loops, DOM/state inspection, and before/after verification.
 - For cloud or platform work, prefer platform MCP docs/tools first.
-- Priority: `context7` for official docs, `ast-grep_*` for local structure, `grep-app_*` for public examples.
+- Priority: `context7` for official docs, local `ast-grep` helper/CLI for structure, `grep-app_*` for public examples.
 
 ## Refactor Discipline
 
