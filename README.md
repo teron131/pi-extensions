@@ -10,6 +10,8 @@ To load these into Pi, put them in `~/.pi/agent/extensions/`.
 
 **permission-guard** adds a confirmation step before risky bash commands. Most harnesses talk about being careful with shell access, but this is better because it sits directly on the actual `bash` tool path and forces an explicit decision at the moment destructive commands are about to run, especially for deletes, installs, permission changes, and git operations.
 
+**rtk** rewrites Pi bash commands through `rtk rewrite` before execution so supported shell commands automatically use RTK's filtered wrappers. It is useful because the extension stays thin and defers all command-specific policy to RTK itself, which means Pi gets the same rewrite behavior as your other RTK-aware setups instead of carrying its own copy of the rules.
+
 **footer** replaces the default footer with a denser live status bar showing runtime, token usage, cache-read share, cost, context pressure, and extension status. Plenty of tools show token counts, but this is better for active coding because it surfaces the operational signals you actually care about while steering a long session, especially context pressure and cache-read behavior.
 
 **codemap** adds a deterministic `codemap` tool for repo and module analysis. Instead of relying only on freeform inspection, it runs a standardized stats pass that summarizes file layout, AST-level symbols, and import/export relationships, then truncates safely while preserving the full report in a temp file when needed.
