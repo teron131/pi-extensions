@@ -23,6 +23,18 @@
 
 - JS/TS projects: run the repo's configured build, typecheck, or equivalent validation command using the repo's existing package manager. Prefer the `build` script when present.
 
+## Skills Router
+
+- Repo map / onboarding / architecture -> `skills/codemap/SKILL.md`
+- Structural search / rename / codemod -> `skills/ast-grep/SKILL.md`
+- Refactor -> `skills/codemap/SKILL.md`, then `skills/refactor/SKILL.md`
+- Frontend build / redesign -> `skills/frontend-design/SKILL.md`; use `skills/uncodixfy/SKILL.md` as anti-pattern check
+- SSO / auth retrofit -> `skills/sso-auth/SKILL.md`
+- LangChain / LangGraph -> `skills/langchain-langgraph-references/SKILL.md`
+- FastMCP on Google Cloud -> `skills/deploy-mcp-gcloud/SKILL.md`
+- LLM stats / benchmark lookup -> `skills/llm-stats/SKILL.md`
+- Outside second opinion, only when useful or requested -> `skills/gemini-consultant/SKILL.md`
+
 **Delegate subagents**
 
 - Use the `subagent` tool as a secondary option for bounded, non-blocking tasks or to load-balance parallel work (e.g., focused discovery, refactoring specific files, targeted planning, or isolated API integration), not to offload responsibility for the overall task.
@@ -45,6 +57,14 @@
 - Edit minimally and match local naming and style.
 - Verify with required build, lint, and format commands.
 - Summarize what changed and why.
+
+## Git Workflow
+
+- Before commit: `git diff --stat`, then `git diff`.
+- Commit only meaningful, verified progress.
+- Use concise verb-first messages: `Add`, `Fix`, `Update`, `Remove`, `Improve`.
+- No `Refactor` unless the commit is truly refactor-only.
+- Report commit hash after success.
 
 ## Tool Strategy
 
@@ -90,36 +110,60 @@ MCP guidance:
 
 ## Working Defaults
 
-- Match the repo's existing shape before inventing a new one.
-- In backend Python repos, prefer a repo-root snake_case package as the main working package.
-- Build backend features in the package first. Use a simple repo-root `test_*.py` script to exercise the feature while it is still taking shape, then keep the implementation in the package and import it into the test script.
-- Use root entrypoints like `app.py`, `main.py`, or `mcp_server.py` only when they serve a real purpose.
-- In mixed or UI-heavy repos, folders like `frontend/`, `src/`, `routes/`, `app/`, `components/`, `hooks/`, `lib/`, `mcp/`, `ui/`, and `convex/` are all valid when they reflect real boundaries.
-- Keep a file whole while it stays easy to read. When it grows into clear stages or roles, split it into predictable siblings like `nodes/`, `graph.py`, `state.py`, `prompts.py`, `schemas.py`, or `api.py`.
-- Avoid creating new `*.ipynb` files by default. Existing tracked notebooks may remain unless explicitly asked to replace or remove them.
-- For fullstack or multi-process apps, keep a repo-root `start.sh` current as ports, commands, or env wiring change.
-- For feature work, keep temporary or agent-owned test scripts in the repo root and name them `test_*.py` or `test_*.ts`.
-- Test scripts should import package code rather than becoming the implementation itself.
-- Do not build those scripts as CLI tools with `argparse`.
-- When testing by examples, run at most 3 unless explicitly requested.
-- Treat nested or module `AGENTS.md` codemaps as reference-only; they may be stale.
+General shape:
+
+- Match existing repo shape before inventing a new one.
+- Backend Python repos: repo-root snake_case package first.
+- Build backend features in the package first; repo-root `test_*.py` stays a thin exercise script.
+- Root entrypoints like `app.py`, `main.py`, `mcp_server.py` only when they earn it.
+- `frontend/`, `src/`, `routes/`, `app/`, `components/`, `hooks/`, `lib/`, `mcp/`, `ui/`, `convex/` are fine when they reflect real boundaries.
+- Keep files whole until clear stage / role splits appear; then use predictable siblings like `nodes/`, `graph.py`, `state.py`, `prompts.py`, `schemas.py`, `api.py`.
+- Avoid new `*.ipynb` files by default.
+- Fullstack or multi-process apps: keep repo-root `start.sh` current.
+
+Fullstack contracts:
+
+- Prefer one TS codebase when practical.
+- If safe, prefer one TS codebase with shared transport contracts.
+- Full TS apps: one shared contract module such as `src/contracts/`, `lib/contracts/`, or `packages/contracts/`.
+- If Python is needed: `FastAPI + Pydantic` owns transport; generate TS types from OpenAPI.
+- Python -> TS apps: use a backend contract module, `scripts/export_openapi.py`, `frontend/src/api-generated.ts`, `frontend/src/api-contracts.ts`, `frontend/src/api.ts`.
+- UI-only state separate from transport contracts.
+- Never hand-maintain duplicate API contracts.
+- Generated transport types for API boundary; handwritten frontend types for UI state, presentation transforms, local component needs.
+- Backend schema changes -> regenerate contracts before trusting the frontend build.
+
+Feature testing scripts:
+
+- Feature work: repo-root scratch scripts named `test_*.py` or `test_*.ts`.
+- Scratch scripts import package code; do not become the implementation.
+- No `argparse` in scratch test scripts.
+- Example-based testing: at most 3 examples unless explicitly requested.
+- Nested or module `AGENTS.md` codemaps are reference-only; may be stale.
 
 ## Compatibility, Package Management, and Test Policy
 
-- Preserve existing model names unless code references require an update.
+Core policy:
+
+- Preserve existing model names unless code references force an update.
 - Replace old implementations directly by default.
-- Do not add shims, dual paths, or feature flags unless explicitly requested. Git history is the safety net.
-- Use `uv` only. Never use pip, conda, or poetry.
+- No shims, dual paths, or feature flags unless explicitly requested.
+- Follow the repo's declared package manager and lockfile.
+- New TS/JS repos: default to `pnpm` unless the repo already standardized elsewhere.
+
+Python workflow:
+
+- Python repos: `uv` only. No pip, conda, or poetry.
 - Run Python tooling via `uv run`.
-- In sandboxed harnesses, do not rely on the default Python or notebook kernel. Prefer the repo-local interpreter via absolute path, such as `<repo>/.venv/bin/python`, or run from the repo root with `uv run`.
-- Follow the repo's declared package manager and lockfile. Default to `pnpm` only for new TS/JS projects that have not standardized on another tool.
-- Default stack for new TS/JS projects: `typescript`, `tsx`, `prettier`, `eslint`, `vitest`.
-- Do not introduce Biome by default. Use it when the repo already uses it cleanly or the user explicitly wants it.
-- If it is safe, prefer one TypeScript codebase with shared transport contracts.
-- In full TS apps, keep transport contracts in one shared module such as `src/contracts/`, `lib/contracts/`, or `packages/contracts/`, and treat that module as the source of truth.
-- If Python is needed, prefer `FastAPI + Pydantic` as the transport authority and generate TS types from OpenAPI.
-- For Python -> TS apps, use a backend contract module, `scripts/export_openapi.py`, `frontend/src/api-generated.ts`, `frontend/src/api-contracts.ts`, and `frontend/src/api.ts`.
-- Keep UI-only state separate from transport contracts.
+- Typical init: `uv init <project-name> --package`, then `uv add --dev ruff pytest pytest-cov`.
+- On demand only: in a Python repo root, `/Users/teron/Projects/agents-config/hooks/update_deps.py` refreshes dependency lower bounds for `uv` projects.
+- Sandboxed harnesses: use repo-local interpreter or run from repo root with `uv run`.
+- Typical maintenance: `uv sync`, `uv run ruff check . --fix`, `uv run ruff format .`, `uv run pytest`.
+
+TS/JS workflow:
+
+- New TS/JS default stack: `typescript`, `tsx`, `prettier`, `eslint`, `vitest`.
+- No Biome by default unless the repo already uses it cleanly or the user explicitly wants it.
 - Skip full test suites by default.
 - Run syntax checks and formatting unless the user explicitly asks for broader tests.
 
