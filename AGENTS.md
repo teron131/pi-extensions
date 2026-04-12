@@ -198,7 +198,11 @@ Naming:
 - Use language-idiomatic naming: Python `snake_case`, JS/TS `camelCase`, classes/components `PascalCase`.
 - Use one name per concept within a scope.
 - Meaningful by default: prefer clear names, but do not make them longer than the idea needs.
-- Prefer full words over abbreviations, but keep names compact when the shorter form is still obvious.
+- Default to full words over abbreviations: `session` not `sess`, `time` not `t`, `config` not `cfg`.
+- Do not invent new shorthand just to make a name shorter.
+- Avoid ultra-short or ambiguous names, especially single-letter names for variables, params, and temporaries.
+- Short names are allowed only when standard and unambiguous: `id`, `idx`, `url`.
+- Prefer explicit index names: `idx`, `item_idx`, `line_idx` over bare `i`.
 - Series stay aligned: related files, types, functions, and variables should use the same naming pattern.
 - Conventions:
   - classes: `CamelCase`
