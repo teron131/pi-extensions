@@ -6,10 +6,19 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 function readBrowserScript(scriptName: string): string {
-	return readFileSync(
-		path.join(__dirname, "browser-scripts", scriptName),
-		"utf8",
-	).trim();
+	return normalizeBrowserScript(
+		readFileSync(path.join(__dirname, "browser-scripts", scriptName), "utf8"),
+	);
+}
+
+function normalizeBrowserScript(script: string): string {
+	return (
+		script
+			.trim()
+			// playwright-cli eval expects a bare expression/function body, not a
+			// statement terminated with a trailing semicolon.
+			.replace(/;\s*$/, "")
+	);
 }
 
 const READABLE_CONTENT_EVAL = readBrowserScript("readable-content.js");

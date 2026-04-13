@@ -131,6 +131,35 @@ function parseRawValue<T = unknown>(value: string): T {
 	}
 }
 
+function hasPlaywrightEvalError(result: {
+	stdout: string;
+	stderr: string;
+}): boolean {
+	const output = `${result.stderr}\n${result.stdout}`.trim();
+	if (!output) {
+		return false;
+	}
+
+	return /(?:^|\n)(SyntaxError|ReferenceError|TypeError|Error):\s/m.test(
+		output,
+	);
+}
+
+function getPlaywrightResultError(
+	result: {
+		code: number;
+		stdout: string;
+		stderr: string;
+	} | null,
+	fallbackMessage: string,
+): string {
+	if (!result) {
+		return fallbackMessage;
+	}
+
+	return result.stderr.trim() || result.stdout.trim() || fallbackMessage;
+}
+
 async function ensurePlaywrightCli(
 	pi: ExtensionAPI,
 	cwd: string,
@@ -442,20 +471,22 @@ export default function playwrightLoader(pi: ExtensionAPI): void {
 					]);
 
 				for (const result of [titleResult, finalUrlResult, contentResult]) {
-					if (!result || result.code !== 0) {
+					if (!result || result.code !== 0 || hasPlaywrightEvalError(result)) {
 						throw new Error(
-							result?.stderr.trim() ||
-								result?.stdout.trim() ||
-								"playwright-cli eval failed",
+							getPlaywrightResultError(result, "playwright-cli eval failed"),
 						);
 					}
 				}
 
-				if (linksResult && linksResult.code !== 0) {
+				if (
+					linksResult &&
+					(linksResult.code !== 0 || hasPlaywrightEvalError(linksResult))
+				) {
 					throw new Error(
-						linksResult.stderr.trim() ||
-							linksResult.stdout.trim() ||
+						getPlaywrightResultError(
+							linksResult,
 							"playwright-cli link extraction failed",
+						),
 					);
 				}
 
