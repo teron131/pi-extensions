@@ -99,8 +99,8 @@ MCP guidance:
 - Prefer the `question` tool over freeform chat when you need the user to confirm, choose, or provide missing inputs and the tool is available.
 - For library or framework docs, use `context7` first when available. Fall back to broader web search or examples only when needed.
 - Before frontend implementation or redesign, read `skills/frontend-design/SKILL.md`.
-- For frontend work, prefer `chrome-devtools` when available for interactive loops, DOM/state inspection, and before/after verification.
-- For browser tasks, default to the user's current browser session first: try `playwright-cli attach --extension=chrome` and verify with `playwright-cli tab-list`. If attach only exposes the extension tab, use local browser-inspection tooling such as `osascript` with `Google Chrome` when available instead of assuming Playwright has full control. Only fall back to a fresh Playwright browser session when the current-session path is insufficient.
+- For frontend work, prefer `playwright-cli` when available for interactive loops, DOM/state inspection, and before/after verification.
+- For browser tasks, default to `playwright-cli`. Try `playwright-cli attach --extension=chrome` to reuse the current browser session and verify with `playwright-cli tab-list`. If attach only exposes the extension tab, fall back to a fresh Playwright browser session instead of assuming full current-session control.
 - For cloud or platform work, prefer platform MCP docs/tools first.
 - Priority: `context7` for official docs, local `ast-grep` helper/CLI for structure, `grep-app_*` for public examples.
 
