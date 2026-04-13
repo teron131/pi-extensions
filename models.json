@@ -1,25 +1,25 @@
 {
-    "providers": {
-        "opencode": {
-            "apiKey": "${env:OPENCODE_API_KEY}",
-            "baseUrl": "https://opencode.ai/zen/v1",
-            "models": [
-                {
-                    "id": "gpt-5.3-codex-spark",
-                    "name": "GPT-5.3 Codex Spark",
-                    "api": "openai-responses",
-                    "reasoning": true,
-                    "input": ["text", "image"],
-                    "cost": {
-                        "input": 1.75,
-                        "output": 14,
-                        "cacheRead": 0.175,
-                        "cacheWrite": 0
-                    },
-                    "contextWindow": 272000,
-                    "maxTokens": 128000
-                }
-            ]
-        }
-    }
+	"providers": {
+		"opencode": {
+			"apiKey": "${env:OPENCODE_API_KEY}",
+			"baseUrl": "https://opencode.ai/zen/v1",
+			"models": [
+				{
+					"id": "gpt-5.3-codex-spark",
+					"name": "GPT-5.3 Codex Spark",
+					"api": "openai-responses",
+					"reasoning": true,
+					"input": ["text", "image"],
+					"cost": {
+						"input": 1.75,
+						"output": 14,
+						"cacheRead": 0.175,
+						"cacheWrite": 0
+					},
+					"contextWindow": 272000,
+					"maxTokens": 128000
+				}
+			]
+		}
+	}
 }

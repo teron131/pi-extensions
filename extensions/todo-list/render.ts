@@ -5,247 +5,247 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { matchesKey, Text, truncateToWidth } from "@mariozechner/pi-tui";
 import {
-    getOrderedVisibleTodos,
-    getTodoStats,
-    TODO_WIDGET_COMPACT_TODO_COUNT,
-    TODO_WIDGET_TOGGLE_HINT,
-    type Todo,
-    type TodoDetails,
+	getOrderedVisibleTodos,
+	getTodoStats,
+	TODO_WIDGET_COMPACT_TODO_COUNT,
+	TODO_WIDGET_TOGGLE_HINT,
+	type Todo,
+	type TodoDetails,
 } from "./state.js";
 
 export function renderTodoLine(
-    todo: Todo,
-    theme: Theme,
-    options?: { position?: number; showPosition?: boolean },
+	todo: Todo,
+	theme: Theme,
+	options?: { position?: number; showPosition?: boolean },
 ): string {
-    const check = todo.done ? theme.fg("success", "✓") : theme.fg("dim", "○");
-    const text = todo.done
-        ? theme.fg("dim", todo.text)
-        : theme.fg("accent", todo.text);
-    const prefix = options?.showPosition
-        ? `  ${theme.fg("dim", `${options.position}.`)} `
-        : "  ";
-    return `${prefix}${check} ${text}`;
+	const check = todo.done ? theme.fg("success", "✓") : theme.fg("dim", "○");
+	const text = todo.done
+		? theme.fg("dim", todo.text)
+		: theme.fg("accent", todo.text);
+	const prefix = options?.showPosition
+		? `  ${theme.fg("dim", `${options.position}.`)} `
+		: "  ";
+	return `${prefix}${check} ${text}`;
 }
 
 export function renderTodoNoteLine(todo: Todo, theme: Theme): string | null {
-    if (!todo.note) {
-        return null;
-    }
+	if (!todo.note) {
+		return null;
+	}
 
-    return `     ${theme.fg("dim", `↳ ${todo.note}`)}`;
+	return `     ${theme.fg("dim", `↳ ${todo.note}`)}`;
 }
 
 export function renderTodoListLines(
-    todos: Todo[],
-    theme: Theme,
-    width: number,
+	todos: Todo[],
+	theme: Theme,
+	width: number,
 ): string[] {
-    const lines: string[] = [];
-    const addLine = (line = "") => {
-        lines.push(truncateToWidth(line, width));
-    };
+	const lines: string[] = [];
+	const addLine = (line = "") => {
+		lines.push(truncateToWidth(line, width));
+	};
 
-    addLine();
-    const title = theme.fg("accent", theme.bold(" 📋 Todo List "));
-    const headerLine =
-        theme.fg("borderMuted", "─".repeat(2)) +
-        title +
-        theme.fg("borderMuted", "─".repeat(Math.max(0, width - 15)));
-    addLine(headerLine);
+	addLine();
+	const title = theme.fg("accent", theme.bold(" 📋 Todo List "));
+	const headerLine =
+		theme.fg("borderMuted", "─".repeat(2)) +
+		title +
+		theme.fg("borderMuted", "─".repeat(Math.max(0, width - 15)));
+	addLine(headerLine);
 
-    if (todos.length === 0) {
-        addLine();
-        addLine(
-            `  ${theme.fg("dim", "No active todos. Use this as lightweight self-guidance.")}`,
-        );
-        addLine();
-        addLine(`  ${theme.fg("dim", "Press Escape to close")}`);
-        addLine();
-        return lines;
-    }
+	if (todos.length === 0) {
+		addLine();
+		addLine(
+			`  ${theme.fg("dim", "No active todos. Use this as lightweight self-guidance.")}`,
+		);
+		addLine();
+		addLine(`  ${theme.fg("dim", "Press Escape to close")}`);
+		addLine();
+		return lines;
+	}
 
-    const visibleTodos = getOrderedVisibleTodos(todos);
-    const { doneCount, openCount, totalCount } = getTodoStats(todos);
+	const visibleTodos = getOrderedVisibleTodos(todos);
+	const { doneCount, openCount, totalCount } = getTodoStats(todos);
 
-    addLine();
-    if (openCount === 0) {
-        addLine(
-            `  ${theme.fg("success", "Checklist complete")}${theme.fg("muted", " • next add starts a fresh list")}`,
-        );
-        addLine();
-        addLine(`  ${theme.fg("accent", theme.bold("Completed"))}`);
-    } else {
-        addLine(
-            `  ${theme.fg("muted", `${openCount} active • ${doneCount} done hidden • ${totalCount} in memory`)}`,
-        );
-        addLine();
-        addLine(`  ${theme.fg("accent", theme.bold("Current"))}`);
-    }
+	addLine();
+	if (openCount === 0) {
+		addLine(
+			`  ${theme.fg("success", "Checklist complete")}${theme.fg("muted", " • next add starts a fresh list")}`,
+		);
+		addLine();
+		addLine(`  ${theme.fg("accent", theme.bold("Completed"))}`);
+	} else {
+		addLine(
+			`  ${theme.fg("muted", `${openCount} active • ${doneCount} done hidden • ${totalCount} in memory`)}`,
+		);
+		addLine();
+		addLine(`  ${theme.fg("accent", theme.bold("Current"))}`);
+	}
 
-    for (const [index, todo] of visibleTodos.entries()) {
-        addLine(
-            renderTodoLine(todo, theme, {
-                position: index + 1,
-                showPosition: true,
-            }),
-        );
-        const noteLine = renderTodoNoteLine(todo, theme);
-        if (noteLine) {
-            addLine(noteLine);
-        }
-    }
+	for (const [index, todo] of visibleTodos.entries()) {
+		addLine(
+			renderTodoLine(todo, theme, {
+				position: index + 1,
+				showPosition: true,
+			}),
+		);
+		const noteLine = renderTodoNoteLine(todo, theme);
+		if (noteLine) {
+			addLine(noteLine);
+		}
+	}
 
-    addLine();
-    addLine(`  ${theme.fg("dim", "Press Escape to close")}`);
-    addLine();
+	addLine();
+	addLine(`  ${theme.fg("dim", "Press Escape to close")}`);
+	addLine();
 
-    return lines;
+	return lines;
 }
 
 export function renderTodoWidgetLines(
-    todos: Todo[],
-    theme: Theme,
-    width: number,
-    expanded: boolean,
+	todos: Todo[],
+	theme: Theme,
+	width: number,
+	expanded: boolean,
 ): string[] {
-    const { doneCount, openCount } = getTodoStats(todos);
-    const allTodos = getOrderedVisibleTodos(todos);
-    const displayed = expanded
-        ? allTodos
-        : allTodos.slice(0, TODO_WIDGET_COMPACT_TODO_COUNT);
-    const toggleHint = expanded
-        ? theme.fg("dim", `(${TODO_WIDGET_TOGGLE_HINT} collapse)`)
-        : theme.fg("dim", `(${TODO_WIDGET_TOGGLE_HINT} expand)`);
-    const summary =
-        openCount === 0
-            ? `${doneCount} complete`
-            : expanded
-              ? `${openCount} active • ${doneCount} hidden`
-              : `${openCount} active`;
-    const lines = [
-        truncateToWidth(
-            `${theme.fg("accent", theme.bold("📋 Todo List"))} ${theme.fg("muted", summary)} ${toggleHint}`,
-            width,
-        ),
-    ];
+	const { doneCount, openCount } = getTodoStats(todos);
+	const allTodos = getOrderedVisibleTodos(todos);
+	const displayed = expanded
+		? allTodos
+		: allTodos.slice(0, TODO_WIDGET_COMPACT_TODO_COUNT);
+	const toggleHint = expanded
+		? theme.fg("dim", `(${TODO_WIDGET_TOGGLE_HINT} collapse)`)
+		: theme.fg("dim", `(${TODO_WIDGET_TOGGLE_HINT} expand)`);
+	const summary =
+		openCount === 0
+			? `${doneCount} complete`
+			: expanded
+				? `${openCount} active • ${doneCount} hidden`
+				: `${openCount} active`;
+	const lines = [
+		truncateToWidth(
+			`${theme.fg("accent", theme.bold("📋 Todo List"))} ${theme.fg("muted", summary)} ${toggleHint}`,
+			width,
+		),
+	];
 
-    for (const todo of displayed) {
-        lines.push(truncateToWidth(renderTodoLine(todo, theme), width));
-        const noteLine = renderTodoNoteLine(todo, theme);
-        if (noteLine) {
-            lines.push(truncateToWidth(noteLine, width));
-        }
-    }
+	for (const todo of displayed) {
+		lines.push(truncateToWidth(renderTodoLine(todo, theme), width));
+		const noteLine = renderTodoNoteLine(todo, theme);
+		if (noteLine) {
+			lines.push(truncateToWidth(noteLine, width));
+		}
+	}
 
-    if (allTodos.length > displayed.length) {
-        lines.push(
-            truncateToWidth(
-                `  ${theme.fg("dim", `… ${allTodos.length - displayed.length} more`)}`,
-                width,
-            ),
-        );
-    }
+	if (allTodos.length > displayed.length) {
+		lines.push(
+			truncateToWidth(
+				`  ${theme.fg("dim", `… ${allTodos.length - displayed.length} more`)}`,
+				width,
+			),
+		);
+	}
 
-    return lines;
+	return lines;
 }
 
 export function getToolResultText(result: {
-    content: { type: string; text?: string }[];
+	content: { type: string; text?: string }[];
 }): string {
-    const text = result.content[0];
-    return text?.type === "text" && typeof text.text === "string"
-        ? text.text
-        : "";
+	const text = result.content[0];
+	return text?.type === "text" && typeof text.text === "string"
+		? text.text
+		: "";
 }
 
 export function renderSuccessText(theme: Theme, text: string): Text {
-    return new Text(theme.fg("success", "✓ ") + theme.fg("muted", text), 0, 0);
+	return new Text(theme.fg("success", "✓ ") + theme.fg("muted", text), 0, 0);
 }
 
 export function renderTodoListResult(
-    details: TodoDetails,
-    expanded: boolean,
-    theme: Theme,
+	details: TodoDetails,
+	expanded: boolean,
+	theme: Theme,
 ): Text {
-    if (details.todos.length === 0) {
-        return new Text(theme.fg("dim", "No active todos"), 0, 0);
-    }
+	if (details.todos.length === 0) {
+		return new Text(theme.fg("dim", "No active todos"), 0, 0);
+	}
 
-    if (details.openCount === 0) {
-        return new Text(
-            theme.fg("success", "✓ Checklist complete") +
-                theme.fg("dim", " • next add starts fresh"),
-            0,
-            0,
-        );
-    }
+	if (details.openCount === 0) {
+		return new Text(
+			theme.fg("success", "✓ Checklist complete") +
+				theme.fg("dim", " • next add starts fresh"),
+			0,
+			0,
+		);
+	}
 
-    const orderedTodos = getOrderedVisibleTodos(details.todos);
-    const displayTodos = expanded ? orderedTodos : orderedTodos.slice(0, 5);
-    let listText = theme.fg(
-        "muted",
-        `${details.openCount} active • ${details.doneCount} done hidden`,
-    );
+	const orderedTodos = getOrderedVisibleTodos(details.todos);
+	const displayTodos = expanded ? orderedTodos : orderedTodos.slice(0, 5);
+	let listText = theme.fg(
+		"muted",
+		`${details.openCount} active • ${details.doneCount} done hidden`,
+	);
 
-    for (const [index, todo] of displayTodos.entries()) {
-        const line = renderTodoLine(todo, theme, {
-            position: index + 1,
-            showPosition: expanded,
-        });
-        listText += `\n${line}`;
-        if (todo.note) {
-            listText += `\n    ${theme.fg("dim", `↳ ${todo.note}`)}`;
-        }
-    }
+	for (const [index, todo] of displayTodos.entries()) {
+		const line = renderTodoLine(todo, theme, {
+			position: index + 1,
+			showPosition: expanded,
+		});
+		listText += `\n${line}`;
+		if (todo.note) {
+			listText += `\n    ${theme.fg("dim", `↳ ${todo.note}`)}`;
+		}
+	}
 
-    if (!expanded && orderedTodos.length > 5) {
-        listText += `\n${theme.fg("dim", `... ${orderedTodos.length - 5} more`)}`;
-    }
+	if (!expanded && orderedTodos.length > 5) {
+		listText += `\n${theme.fg("dim", `... ${orderedTodos.length - 5} more`)}`;
+	}
 
-    return new Text(listText, 0, 0);
+	return new Text(listText, 0, 0);
 }
 
 export class TodoListComponent {
-    private readonly getCurrentTodos: () => Todo[];
-    private readonly theme: Theme;
-    private readonly onClose: () => void;
-    private cachedWidth?: number;
-    private cachedLines?: string[];
+	private readonly getCurrentTodos: () => Todo[];
+	private readonly theme: Theme;
+	private readonly onClose: () => void;
+	private cachedWidth?: number;
+	private cachedLines?: string[];
 
-    constructor(
-        getCurrentTodos: () => Todo[],
-        theme: Theme,
-        onClose: () => void,
-    ) {
-        this.getCurrentTodos = getCurrentTodos;
-        this.theme = theme;
-        this.onClose = onClose;
-    }
+	constructor(
+		getCurrentTodos: () => Todo[],
+		theme: Theme,
+		onClose: () => void,
+	) {
+		this.getCurrentTodos = getCurrentTodos;
+		this.theme = theme;
+		this.onClose = onClose;
+	}
 
-    handleInput(data: string): void {
-        if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
-            this.onClose();
-        }
-    }
+	handleInput(data: string): void {
+		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
+			this.onClose();
+		}
+	}
 
-    render(width: number): string[] {
-        if (this.cachedLines && this.cachedWidth === width) {
-            return this.cachedLines;
-        }
+	render(width: number): string[] {
+		if (this.cachedLines && this.cachedWidth === width) {
+			return this.cachedLines;
+		}
 
-        const lines = renderTodoListLines(
-            this.getCurrentTodos(),
-            this.theme,
-            width,
-        );
-        this.cachedWidth = width;
-        this.cachedLines = lines;
-        return lines;
-    }
+		const lines = renderTodoListLines(
+			this.getCurrentTodos(),
+			this.theme,
+			width,
+		);
+		this.cachedWidth = width;
+		this.cachedLines = lines;
+		return lines;
+	}
 
-    invalidate(): void {
-        this.cachedWidth = undefined;
-        this.cachedLines = undefined;
-    }
+	invalidate(): void {
+		this.cachedWidth = undefined;
+		this.cachedLines = undefined;
+	}
 }

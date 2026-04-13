@@ -10,6 +10,6 @@ import { registerCompactionHooks } from "./compaction.js";
 import { registerHistoricalPruningHooks } from "./pruning.js";
 
 export default function dynamicTruncationExtension(pi: ExtensionAPI): void {
-    registerCompactionHooks(pi);
-    registerHistoricalPruningHooks(pi);
+	registerCompactionHooks(pi);
+	registerHistoricalPruningHooks(pi);
 }

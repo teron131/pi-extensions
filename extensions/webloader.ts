@@ -10,7 +10,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult, truncateHead, withFileMutationQueue } from "@mariozechner/pi-coding-agent";
+import {
+	DEFAULT_MAX_BYTES,
+	DEFAULT_MAX_LINES,
+	formatSize,
+	type TruncationResult,
+	truncateHead,
+	withFileMutationQueue,
+} from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
 const TOOL_NAME = "webloader";
@@ -21,107 +28,128 @@ const TEMP_OUTPUT_FILE = "output.txt";
 const MAX_LINKS = 25;
 
 const PlaywrightLoaderParams = Type.Object({
-    url: Type.String({
-        description: "URL to load in a fresh headless playwright-cli session.",
-    }),
-    selector: Type.Optional(
-        Type.String({
-            description: "Optional CSS selector or Playwright locator to extract instead of the full page.",
-        }),
-    ),
-    includeLinks: Type.Optional(
-        Type.Boolean({
-            description: "Include up to 25 discovered page links in the response.",
-        }),
-    ),
-    timeoutMs: Type.Optional(
-        Type.Number({
-            description: "Navigation and extraction timeout in milliseconds. Defaults to 45000.",
-        }),
-    ),
+	url: Type.String({
+		description: "URL to load in a fresh headless playwright-cli session.",
+	}),
+	selector: Type.Optional(
+		Type.String({
+			description:
+				"Optional CSS selector or Playwright locator to extract instead of the full page.",
+		}),
+	),
+	includeLinks: Type.Optional(
+		Type.Boolean({
+			description: "Include up to 25 discovered page links in the response.",
+		}),
+	),
+	timeoutMs: Type.Optional(
+		Type.Number({
+			description:
+				"Navigation and extraction timeout in milliseconds. Defaults to 45000.",
+		}),
+	),
 });
 
 interface PlaywrightLoaderParamsType {
-    url: string;
-    selector?: string;
-    includeLinks?: boolean;
-    timeoutMs?: number;
+	url: string;
+	selector?: string;
+	includeLinks?: boolean;
+	timeoutMs?: number;
 }
 
 interface PageLink {
-    text: string;
-    href: string;
+	text: string;
+	href: string;
 }
 
 interface PlaywrightLoaderDetails {
-    url: string;
-    finalUrl: string;
-    title: string;
-    summary: string;
-    selector?: string;
-    includeLinks: boolean;
-    truncated?: boolean;
-    fullOutputPath?: string;
+	url: string;
+	finalUrl: string;
+	title: string;
+	summary: string;
+	selector?: string;
+	includeLinks: boolean;
+	truncated?: boolean;
+	fullOutputPath?: string;
 }
 
 function normalizeText(value: unknown): string {
-    if (typeof value !== "string") {
-        return "";
-    }
-    return value.trim();
+	if (typeof value !== "string") {
+		return "";
+	}
+	return value.trim();
 }
 
 function normalizeTimeout(value?: number): number {
-    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-        return TOOL_TIMEOUT_MS;
-    }
-    return Math.min(Math.trunc(value), 120_000);
+	if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+		return TOOL_TIMEOUT_MS;
+	}
+	return Math.min(Math.trunc(value), 120_000);
 }
 
 function makeSessionName(): string {
-    return `loader-${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+	return `loader-${randomUUID().replace(/-/g, "").slice(0, 12)}`;
 }
 
 function parseRawValue<T = unknown>(value: string): T {
-    const trimmed = value.trim();
-    if (!trimmed) {
-        return "" as T;
-    }
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return "" as T;
+	}
 
-    try {
-        return JSON.parse(trimmed) as T;
-    } catch {
-        return trimmed as T;
-    }
+	try {
+		return JSON.parse(trimmed) as T;
+	} catch {
+		return trimmed as T;
+	}
 }
 
-async function ensurePlaywrightCli(pi: ExtensionAPI, cwd: string): Promise<void> {
-    const result = await pi.exec("which", ["playwright-cli"], { cwd });
-    if (result.code !== 0) {
-        throw new Error("playwright-cli is not available on PATH. Install @playwright/cli first.");
-    }
+async function ensurePlaywrightCli(
+	pi: ExtensionAPI,
+	cwd: string,
+): Promise<void> {
+	const result = await pi.exec("which", ["playwright-cli"], { cwd });
+	if (result.code !== 0) {
+		throw new Error(
+			"playwright-cli is not available on PATH. Install @playwright/cli first.",
+		);
+	}
 }
 
-async function runPlaywright(pi: ExtensionAPI, cwd: string, session: string, args: string[], timeoutMs: number, signal?: AbortSignal) {
-    return pi.exec("playwright-cli", [`-s=${session}`, ...args], {
-        cwd,
-        signal,
-        timeout: timeoutMs,
-    });
+async function runPlaywright(
+	pi: ExtensionAPI,
+	cwd: string,
+	session: string,
+	args: string[],
+	timeoutMs: number,
+	signal?: AbortSignal,
+) {
+	return pi.exec("playwright-cli", [`-s=${session}`, ...args], {
+		cwd,
+		signal,
+		timeout: timeoutMs,
+	});
 }
 
-async function runPlaywrightRaw(pi: ExtensionAPI, cwd: string, session: string, args: string[], timeoutMs: number, signal?: AbortSignal) {
-    return pi.exec("playwright-cli", [`-s=${session}`, "--raw", ...args], {
-        cwd,
-        signal,
-        timeout: timeoutMs,
-    });
+async function runPlaywrightRaw(
+	pi: ExtensionAPI,
+	cwd: string,
+	session: string,
+	args: string[],
+	timeoutMs: number,
+	signal?: AbortSignal,
+) {
+	return pi.exec("playwright-cli", [`-s=${session}`, "--raw", ...args], {
+		cwd,
+		signal,
+		timeout: timeoutMs,
+	});
 }
 
 function readableEvalExpression(): string[] {
-    return [
-        "eval",
-        `() => {
+	return [
+		"eval",
+		`() => {
             const whitespacePattern = new RegExp("[ \\\\t]+", "g");
             const newlinePattern = new RegExp("\\\\n{3,}", "g");
             const contentLimit = 32000;
@@ -472,188 +500,268 @@ function readableEvalExpression(): string[] {
                 content: clip(content, contentLimit),
             };
         }`,
-    ];
+	];
 }
 
 function linksEvalExpression(): string[] {
-    return ["eval", `() => [...document.links].slice(0, ${MAX_LINKS}).map(link => ({ text: (link.textContent || '').trim(), href: link.href }))`];
+	return [
+		"eval",
+		`() => [...document.links].slice(0, ${MAX_LINKS}).map(link => ({ text: (link.textContent || '').trim(), href: link.href }))`,
+	];
 }
 
-function buildOutput(args: { title: string; finalUrl: string; summary: string; selector?: string; links: PageLink[]; content: string }): string {
-    const parts = [`Title: ${args.title || "(untitled)"}`, `Final URL: ${args.finalUrl}`];
+function buildOutput(args: {
+	title: string;
+	finalUrl: string;
+	summary: string;
+	selector?: string;
+	links: PageLink[];
+	content: string;
+}): string {
+	const parts = [
+		`Title: ${args.title || "(untitled)"}`,
+		`Final URL: ${args.finalUrl}`,
+	];
 
-    if (args.selector) {
-        parts.push(`Selector: ${args.selector}`);
-    }
+	if (args.selector) {
+		parts.push(`Selector: ${args.selector}`);
+	}
 
-    let output = parts.join("\n");
+	let output = parts.join("\n");
 
-    if (args.links.length > 0) {
-        const lines = args.links.map((link) => {
-            const text = link.text ? `${link.text} -> ` : "";
-            return `- ${text}${link.href}`;
-        });
-        output += `\n\nLinks:\n${lines.join("\n")}`;
-    }
+	if (args.links.length > 0) {
+		const lines = args.links.map((link) => {
+			const text = link.text ? `${link.text} -> ` : "";
+			return `- ${text}${link.href}`;
+		});
+		output += `\n\nLinks:\n${lines.join("\n")}`;
+	}
 
-    if (args.summary) {
-        output += `\n\nSummary:\n${args.summary}`;
-    }
+	if (args.summary) {
+		output += `\n\nSummary:\n${args.summary}`;
+	}
 
-    output += `\n\nContent:\n${args.content || "(empty)"}`;
-    return output;
+	output += `\n\nContent:\n${args.content || "(empty)"}`;
+	return output;
 }
 
-function appendTruncationNotice(text: string, truncation: TruncationResult, outputPath: string): string {
-    const hiddenLines = truncation.totalLines - truncation.outputLines;
-    const hiddenBytes = truncation.totalBytes - truncation.outputBytes;
+function appendTruncationNotice(
+	text: string,
+	truncation: TruncationResult,
+	outputPath: string,
+): string {
+	const hiddenLines = truncation.totalLines - truncation.outputLines;
+	const hiddenBytes = truncation.totalBytes - truncation.outputBytes;
 
-    let result = text;
-    result += `\n\n[Output truncated: showing ${truncation.outputLines} of ${truncation.totalLines} lines`;
-    result += ` (${formatSize(truncation.outputBytes)} of ${formatSize(truncation.totalBytes)}).`;
-    result += ` ${hiddenLines} lines (${formatSize(hiddenBytes)}) omitted.`;
-    result += ` Full output saved to: ${outputPath}]`;
-    return result;
+	let result = text;
+	result += `\n\n[Output truncated: showing ${truncation.outputLines} of ${truncation.totalLines} lines`;
+	result += ` (${formatSize(truncation.outputBytes)} of ${formatSize(truncation.totalBytes)}).`;
+	result += ` ${hiddenLines} lines (${formatSize(hiddenBytes)}) omitted.`;
+	result += ` Full output saved to: ${outputPath}]`;
+	return result;
 }
 
 async function saveFullOutput(output: string): Promise<string> {
-    const tempDir = await mkdtemp(path.join(tmpdir(), TEMP_OUTPUT_PREFIX));
-    const tempFile = path.join(tempDir, TEMP_OUTPUT_FILE);
-    await withFileMutationQueue(tempFile, async () => {
-        await writeFile(tempFile, output, "utf8");
-    });
-    return tempFile;
+	const tempDir = await mkdtemp(path.join(tmpdir(), TEMP_OUTPUT_PREFIX));
+	const tempFile = path.join(tempDir, TEMP_OUTPUT_FILE);
+	await withFileMutationQueue(tempFile, async () => {
+		await writeFile(tempFile, output, "utf8");
+	});
+	return tempFile;
 }
 
 export default function playwrightLoader(pi: ExtensionAPI): void {
-    pi.registerTool({
-        name: TOOL_NAME,
-        label: TOOL_LABEL,
-        description:
-            "Load a URL in a fresh headless playwright-cli session and return cleaned readable content, the final URL, and optional links. This uses a fresh browser context, so authenticated sites may redirect to login.",
-        promptSnippet: "Load a URL invisibly with headless Playwright and extract the useful readable page content.",
-        promptGuidelines: [
-            "Use webloader when you need website content without opening a visible browser window.",
-            "Expect a fresh browser context by default. Authenticated sites may redirect to login unless their state is loaded separately.",
-            "Prefer the cleaned readable output and avoid asking for raw page source through this tool.",
-        ],
-        parameters: PlaywrightLoaderParams as never,
+	pi.registerTool({
+		name: TOOL_NAME,
+		label: TOOL_LABEL,
+		description:
+			"Load a URL in a fresh headless playwright-cli session and return cleaned readable content, the final URL, and optional links. This uses a fresh browser context, so authenticated sites may redirect to login.",
+		promptSnippet:
+			"Load a URL invisibly with headless Playwright and extract the useful readable page content.",
+		promptGuidelines: [
+			"Use webloader when you need website content without opening a visible browser window.",
+			"Expect a fresh browser context by default. Authenticated sites may redirect to login unless their state is loaded separately.",
+			"Prefer the cleaned readable output and avoid asking for raw page source through this tool.",
+		],
+		parameters: PlaywrightLoaderParams as never,
 
-        async execute(_toolCallId, rawParams: PlaywrightLoaderParamsType, signal, onUpdate, ctx) {
-            const url = rawParams.url.trim();
-            if (!url) {
-                throw new Error("url is required");
-            }
+		async execute(
+			_toolCallId,
+			rawParams: PlaywrightLoaderParamsType,
+			signal,
+			onUpdate,
+			ctx,
+		) {
+			const url = rawParams.url.trim();
+			if (!url) {
+				throw new Error("url is required");
+			}
 
-            const includeLinks = rawParams.includeLinks === true;
-            const timeoutMs = normalizeTimeout(rawParams.timeoutMs);
-            const selector = rawParams.selector?.trim() || undefined;
-            const session = makeSessionName();
+			const includeLinks = rawParams.includeLinks === true;
+			const timeoutMs = normalizeTimeout(rawParams.timeoutMs);
+			const selector = rawParams.selector?.trim() || undefined;
+			const session = makeSessionName();
 
-            await ensurePlaywrightCli(pi, ctx.cwd);
+			await ensurePlaywrightCli(pi, ctx.cwd);
 
-            onUpdate?.({
-                content: [
-                    {
-                        type: "text",
-                        text: `Loading ${url} in headless Playwright...`,
-                    },
-                ],
-                details: { url, session },
-            });
+			onUpdate?.({
+				content: [
+					{
+						type: "text",
+						text: `Loading ${url} in headless Playwright...`,
+					},
+				],
+				details: { url, session },
+			});
 
-            try {
-                const openResult = await runPlaywright(pi, ctx.cwd, session, ["open", url], timeoutMs, signal);
-                if (openResult.code !== 0) {
-                    throw new Error(openResult.stderr.trim() || openResult.stdout.trim() || `Failed to load ${url}`);
-                }
+			try {
+				const openResult = await runPlaywright(
+					pi,
+					ctx.cwd,
+					session,
+					["open", url],
+					timeoutMs,
+					signal,
+				);
+				if (openResult.code !== 0) {
+					throw new Error(
+						openResult.stderr.trim() ||
+							openResult.stdout.trim() ||
+							`Failed to load ${url}`,
+					);
+				}
 
-                const [titleResult, finalUrlResult, contentResult, linksResult] = await Promise.all([
-                    runPlaywrightRaw(pi, ctx.cwd, session, ["eval", "document.title"], timeoutMs, signal),
-                    runPlaywrightRaw(pi, ctx.cwd, session, ["eval", "location.href"], timeoutMs, signal),
-                    runPlaywrightRaw(
-                        pi,
-                        ctx.cwd,
-                        session,
-                        selector
-                            ? [
-                                  "eval",
-                                  "el => { const whitespacePattern = new RegExp('[ \\\\t]+', 'g'); const newlinePattern = new RegExp('\\\\n{3,}', 'g'); const content = (el.innerText || el.textContent || '').split('\\u00a0').join(' ').replace(whitespacePattern, ' ').replace(newlinePattern, '\\n\\n').trim(); return { summary: '', content }; }",
-                                  selector,
-                              ]
-                            : readableEvalExpression(),
-                        timeoutMs,
-                        signal,
-                    ),
-                    includeLinks ? runPlaywrightRaw(pi, ctx.cwd, session, linksEvalExpression(), timeoutMs, signal) : Promise.resolve(null),
-                ]);
+				const [titleResult, finalUrlResult, contentResult, linksResult] =
+					await Promise.all([
+						runPlaywrightRaw(
+							pi,
+							ctx.cwd,
+							session,
+							["eval", "document.title"],
+							timeoutMs,
+							signal,
+						),
+						runPlaywrightRaw(
+							pi,
+							ctx.cwd,
+							session,
+							["eval", "location.href"],
+							timeoutMs,
+							signal,
+						),
+						runPlaywrightRaw(
+							pi,
+							ctx.cwd,
+							session,
+							selector
+								? [
+										"eval",
+										"el => { const whitespacePattern = new RegExp('[ \\\\t]+', 'g'); const newlinePattern = new RegExp('\\\\n{3,}', 'g'); const content = (el.innerText || el.textContent || '').split('\\u00a0').join(' ').replace(whitespacePattern, ' ').replace(newlinePattern, '\\n\\n').trim(); return { summary: '', content }; }",
+										selector,
+									]
+								: readableEvalExpression(),
+							timeoutMs,
+							signal,
+						),
+						includeLinks
+							? runPlaywrightRaw(
+									pi,
+									ctx.cwd,
+									session,
+									linksEvalExpression(),
+									timeoutMs,
+									signal,
+								)
+							: Promise.resolve(null),
+					]);
 
-                for (const result of [titleResult, finalUrlResult, contentResult]) {
-                    if (!result || result.code !== 0) {
-                        throw new Error(result?.stderr.trim() || result?.stdout.trim() || "playwright-cli eval failed");
-                    }
-                }
+				for (const result of [titleResult, finalUrlResult, contentResult]) {
+					if (!result || result.code !== 0) {
+						throw new Error(
+							result?.stderr.trim() ||
+								result?.stdout.trim() ||
+								"playwright-cli eval failed",
+						);
+					}
+				}
 
-                if (linksResult && linksResult.code !== 0) {
-                    throw new Error(linksResult.stderr.trim() || linksResult.stdout.trim() || "playwright-cli link extraction failed");
-                }
+				if (linksResult && linksResult.code !== 0) {
+					throw new Error(
+						linksResult.stderr.trim() ||
+							linksResult.stdout.trim() ||
+							"playwright-cli link extraction failed",
+					);
+				}
 
-                const title = normalizeText(parseRawValue<string>(titleResult.stdout));
-                const finalUrl = normalizeText(parseRawValue<string>(finalUrlResult.stdout));
-                const contentPayload = parseRawValue<{
-                    summary?: string;
-                    content?: string;
-                }>(contentResult.stdout);
-                const summary = normalizeText(contentPayload?.summary);
-                const content = normalizeText(contentPayload?.content);
-                const links = linksResult
-                    ? (parseRawValue<PageLink[]>(linksResult.stdout) || []).filter((link) => Boolean(link) && typeof link.href === "string" && link.href.length > 0)
-                    : [];
+				const title = normalizeText(parseRawValue<string>(titleResult.stdout));
+				const finalUrl = normalizeText(
+					parseRawValue<string>(finalUrlResult.stdout),
+				);
+				const contentPayload = parseRawValue<{
+					summary?: string;
+					content?: string;
+				}>(contentResult.stdout);
+				const summary = normalizeText(contentPayload?.summary);
+				const content = normalizeText(contentPayload?.content);
+				const links = linksResult
+					? (parseRawValue<PageLink[]>(linksResult.stdout) || []).filter(
+							(link) =>
+								Boolean(link) &&
+								typeof link.href === "string" &&
+								link.href.length > 0,
+						)
+					: [];
 
-                const output = buildOutput({
-                    title,
-                    finalUrl,
-                    summary,
-                    selector,
-                    links,
-                    content,
-                });
-                const truncation = truncateHead(output, {
-                    maxLines: DEFAULT_MAX_LINES,
-                    maxBytes: DEFAULT_MAX_BYTES,
-                });
-                const details: PlaywrightLoaderDetails = {
-                    url,
-                    finalUrl,
-                    title,
-                    summary,
-                    selector,
-                    includeLinks,
-                };
+				const output = buildOutput({
+					title,
+					finalUrl,
+					summary,
+					selector,
+					links,
+					content,
+				});
+				const truncation = truncateHead(output, {
+					maxLines: DEFAULT_MAX_LINES,
+					maxBytes: DEFAULT_MAX_BYTES,
+				});
+				const details: PlaywrightLoaderDetails = {
+					url,
+					finalUrl,
+					title,
+					summary,
+					selector,
+					includeLinks,
+				};
 
-                if (!truncation.truncated) {
-                    return {
-                        content: [{ type: "text", text: truncation.content }],
-                        details,
-                    };
-                }
+				if (!truncation.truncated) {
+					return {
+						content: [{ type: "text", text: truncation.content }],
+						details,
+					};
+				}
 
-                const fullOutputPath = await saveFullOutput(output);
-                details.truncated = true;
-                details.fullOutputPath = fullOutputPath;
+				const fullOutputPath = await saveFullOutput(output);
+				details.truncated = true;
+				details.fullOutputPath = fullOutputPath;
 
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: appendTruncationNotice(truncation.content, truncation, fullOutputPath),
-                        },
-                    ],
-                    details,
-                };
-            } finally {
-                await runPlaywright(pi, ctx.cwd, session, ["close"], 10_000).catch(() => undefined);
-            }
-        },
-    });
+				return {
+					content: [
+						{
+							type: "text",
+							text: appendTruncationNotice(
+								truncation.content,
+								truncation,
+								fullOutputPath,
+							),
+						},
+					],
+					details,
+				};
+			} finally {
+				await runPlaywright(pi, ctx.cwd, session, ["close"], 10_000).catch(
+					() => undefined,
+				);
+			}
+		},
+	});
 }
