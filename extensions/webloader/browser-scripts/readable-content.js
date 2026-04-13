@@ -16,38 +16,7 @@
 			.map((piece) => normalize(piece))
 			.filter(Boolean)
 			.filter((piece, idx, arr) => idx === 0 || arr[idx - 1] !== piece);
-	const uniquePieces = (pieces) => {
-		const seen = new Set();
-		return cleanPieces(pieces).filter((piece) => {
-			if (seen.has(piece)) {
-				return false;
-			}
-			seen.add(piece);
-			return true;
-		});
-	};
 	const linesFromText = (text) => cleanPieces((text || "").split(/\n+/g));
-	const findText = (selectors) => {
-		for (const selector of selectors) {
-			const node = document.querySelector(selector);
-			const text = normalize(node?.textContent || node?.innerText || "");
-			if (text) {
-				return text;
-			}
-		}
-		return "";
-	};
-	const readMeta = (selectors) => {
-		for (const selector of selectors) {
-			const value = normalize(
-				document.querySelector(selector)?.getAttribute("content") || "",
-			);
-			if (value) {
-				return value;
-			}
-		}
-		return "";
-	};
 	const boilerplatePatterns = [
 		/^home$/i,
 		/^products$/i,
@@ -80,8 +49,30 @@
 		/^save and categorize content based on your preferences\.?$/i,
 		/^documentation$/i,
 	];
+	const uiGarbagePatterns = [
+		/^skip to (main )?content$/i,
+		/^navigation menu$/i,
+		/^provide feedback$/i,
+		/^saved searches$/i,
+		/^use saved searches to filter your results more quickly$/i,
+		/^you must be signed in/i,
+		/^(sign in|sign up|log in|login|log out)$/i,
+		/^(light|dark)$/i,
+		/^(download|full width|share|save|subscribe)$/i,
+		/^(view all|show less|show more|collapse|expand)$/i,
+		/^(sections|services|website|company|site theme)$/i,
+		/^(about|contact us|terms of use|privacy policy|faq|advertise)$/i,
+		/^if playback doesn't begin shortly/i,
+		/^you're signed out/i,
+		/^watch full video$/i,
+		/^up next$/i,
+		/^back$/i,
+		/^an error occurred while retrieving sharing information/i,
+	];
 	const isBoilerplate = (piece) =>
 		boilerplatePatterns.some((pattern) => pattern.test(piece));
+	const isUiGarbage = (piece) =>
+		uiGarbagePatterns.some((pattern) => pattern.test(piece));
 	const isCodeLike = (piece) => {
 		if (!piece) {
 			return false;
@@ -100,6 +91,19 @@
 		).length;
 		return markerHits >= 2;
 	};
+	const filterObviousGarbage = (pieces) =>
+		cleanPieces(pieces).filter((piece) => {
+			if (!piece) {
+				return false;
+			}
+			if (isUiGarbage(piece)) {
+				return false;
+			}
+			if (piece.length <= 2 && !/\d/.test(piece) && !isCodeLike(piece)) {
+				return false;
+			}
+			return true;
+		});
 	const trimLeadingGarbage = (pieces) => {
 		const trimmed = [...pieces];
 		while (trimmed.length > 1) {
@@ -120,6 +124,26 @@
 		}
 		return trimmed;
 	};
+	const trimTrailingGarbage = (pieces) => {
+		const trimmed = [...pieces];
+		while (trimmed.length > 1) {
+			const candidate = trimmed[trimmed.length - 1];
+			if (isUiGarbage(candidate) || isBoilerplate(candidate)) {
+				trimmed.pop();
+				continue;
+			}
+			if (
+				candidate.length < 30 &&
+				!/[.!?]/.test(candidate) &&
+				!isCodeLike(candidate)
+			) {
+				trimmed.pop();
+				continue;
+			}
+			break;
+		}
+		return trimmed;
+	};
 	const makeTitleSummary = () => {
 		const headingText = normalize(
 			document.querySelector("main h1, article h1, h1")?.textContent || "",
@@ -130,6 +154,14 @@
 		const pageTitle = normalize(document.title || "");
 		return pageTitle.replace(/\s+[|·-]\s+[^|·-]+$/g, "").trim();
 	};
+	const readMetaDescription = () =>
+		normalize(
+			document
+				.querySelector(
+					"meta[name='description'], meta[property='og:description']",
+				)
+				?.getAttribute("content") || "",
+		);
 	const pickLongest = (selectors) => {
 		let best = null;
 		let bestLength = 0;
@@ -207,8 +239,12 @@
 				paragraphs.push(text);
 			}
 		}
-		pieces = trimLeadingGarbage(cleanPieces(pieces));
-		paragraphs = trimLeadingGarbage(cleanPieces(paragraphs));
+		pieces = trimTrailingGarbage(
+			trimLeadingGarbage(filterObviousGarbage(pieces)),
+		);
+		paragraphs = trimTrailingGarbage(
+			trimLeadingGarbage(filterObviousGarbage(paragraphs)),
+		);
 		let content = pieces.join("\n\n");
 		if (content.length < 300) {
 			content = normalize(clone.innerText || clone.textContent || "");
@@ -216,277 +252,16 @@
 		return { pieces, paragraphs, content };
 	};
 
-	if (
-		location.hostname === "github.com" &&
-		location.pathname.includes("/blob/")
-	) {
-		const title = normalize(document.title || "");
-		const codeNode =
-			document.querySelector('[data-testid="code-view-lines"]') ||
-			document.querySelector('[data-testid="read-only-cursor-text-area"]') ||
-			document.querySelector(".react-code-text") ||
-			document.querySelector("table.js-file-line-container") ||
-			document.querySelector(".js-file-line-container") ||
-			document.querySelector(".highlight");
-		const codeText = normalize(codeNode?.textContent || "");
-		const content = clip(
-			codeText || normalize(document.body?.innerText || ""),
-			contentLimit,
-		);
-		return {
-			summary: clip(title, 280),
-			content,
-		};
-	}
-
-	if (location.hostname === "github.com") {
-		const pathParts = location.pathname.split("/").filter(Boolean);
-		const repoSection = pathParts[2] || "";
-		const isRepoRoot =
-			pathParts.length >= 2 &&
-			!repoSection &&
-			!location.pathname.includes("/blob/") &&
-			!location.pathname.includes("/tree/");
-		if (isRepoRoot) {
-			const title = normalize(document.title || "");
-			const description =
-				findText([
-					'[data-testid="repository-description"]',
-					'[itemprop="about"]',
-				]) ||
-				readMeta([
-					'meta[name="description"]',
-					'meta[property="og:description"]',
-				]);
-			const readme = normalize(
-				document.querySelector(
-					'article.markdown-body, .markdown-body, [itemprop="text"]',
-				)?.innerText || "",
-			);
-			const stars = normalize(
-				document.querySelector(
-					'#repo-stars-counter-star, a[href$="/stargazers"] strong, a[href$="/stargazers"]',
-				)?.textContent || "",
-			);
-			const forks = normalize(
-				document.querySelector(
-					'#repo-network-counter, a[href$="/forks"] strong, a[href$="/forks"]',
-				)?.textContent || "",
-			);
-			const content = clip(
-				cleanPieces([
-					description,
-					stars ? `Stars: ${stars}` : "",
-					forks ? `Forks: ${forks}` : "",
-					readme,
-				]).join("\n\n"),
-				contentLimit,
-			);
-			return {
-				summary: clip(description || title, 280),
-				content,
-			};
-		}
-	}
-
-	if (
-		location.hostname === "www.youtube.com" &&
-		location.pathname === "/watch"
-	) {
-		const title =
-			normalize(
-				document.querySelector("ytd-watch-metadata h1, h1")?.textContent || "",
-			) || normalize(document.title || "");
-		const playerDetails =
-			typeof ytInitialPlayerResponse !== "undefined"
-				? ytInitialPlayerResponse?.videoDetails || null
-				: null;
-		const rawDescription = normalize(
-			playerDetails?.shortDescription ||
-				document.querySelector("#description-inline-expander")?.textContent ||
-				document
-					.querySelector('meta[name="description"]')
-					?.getAttribute("content") ||
-				"",
-		);
-		const richTitle = normalize(playerDetails?.title || title);
-		const description = normalize(
-			rawDescription
-				.split(
-					/How this was made|Chapters|Transcript|Explore the podcast|Show less/i,
-				)[0]
-				.replace(/\.\.\.more$/i, "")
-				.replace(/\s*Show less$/i, ""),
-		);
-		const channel =
-			normalize(playerDetails?.author || "") ||
-			normalize(
-				document.querySelector("ytd-channel-name a, ytd-channel-name")
-					?.textContent || "",
-			);
-		const stats =
-			cleanPieces([
-				playerDetails?.viewCount ? `Views: ${playerDetails.viewCount}` : "",
-				playerDetails?.lengthSeconds
-					? `Duration: ${playerDetails.lengthSeconds} seconds`
-					: "",
-				readMeta(['meta[itemprop="datePublished"]'])
-					? `Published: ${readMeta(['meta[itemprop="datePublished"]'])}`
-					: "",
-			]).join("\n") ||
-			findText(["#info-text", "ytd-watch-info-text", "#owner-sub-count"]);
-		const descriptionParts = rawDescription.split(/Timestamps:/i);
-		const chapterText = descriptionParts[1] || "";
-		const chapters = uniquePieces(
-			linesFromText(chapterText).filter((line) =>
-				/^\d{1,2}:\d{2}\s+/.test(line),
-			),
-		).slice(0, 20);
-		const transcriptHint = normalize(
-			[...document.querySelectorAll("*")]
-				.map((node) => normalize(node.textContent || ""))
-				.find(
-					(text) => text.includes("Show transcript") && text.length < 120,
-				) || "",
-		);
-		const pieces = cleanPieces([
-			richTitle,
-			channel,
-			stats,
-			description,
-			chapters.length ? `Chapters:\n${chapters.join("\n")}` : "",
-			transcriptHint ? "Transcript available in the page UI." : "",
-		]);
-		const content = clip(pieces.join("\n\n"), contentLimit);
-		return {
-			summary: clip(description || richTitle, 280),
-			content,
-		};
-	}
-
-	if (
-		location.hostname === "artificialanalysis.ai" &&
-		location.pathname === "/models"
-	) {
-		const mainText = normalize(
-			document.querySelector("main")?.innerText ||
-				document.body?.innerText ||
-				"",
-		);
-		const lines = linesFromText(mainText);
-		const title =
-			lines.find((line) => line.includes("Comparison of Models")) ||
-			normalize(document.title || "");
-		const summary =
-			lines.find((line) =>
-				line.includes("Comparison and analysis of AI models"),
-			) ||
-			readMeta([
-				'meta[name="description"]',
-				'meta[property="og:description"]',
-			]) ||
-			title;
-		const sectionTitles = [
-			"Intelligence",
-			"Output Speed (tokens/s)",
-			"Latency (seconds)",
-			"Price ($ per M tokens)",
-			"Context Window",
-		];
-		const sectionPieces = [];
-		for (const sectionTitle of sectionTitles) {
-			const idx = lines.indexOf(sectionTitle);
-			if (idx === -1) {
-				continue;
-			}
-			const blurb = lines
-				.slice(idx + 1, idx + 5)
-				.find((line) => line.length > 30 && !sectionTitles.includes(line));
-			if (blurb) {
-				sectionPieces.push(`${sectionTitle}: ${blurb}`);
-			}
-		}
-		const methodology = lines.find((line) =>
-			line.startsWith("Models are compared across multiple dimensions"),
-		);
-		const content = clip(
-			cleanPieces([title, summary, ...sectionPieces, methodology]).join("\n\n"),
-			contentLimit,
-		);
-		return {
-			summary: clip(summary, 280),
-			content,
-		};
-	}
-
-	if (
-		location.hostname === "stockanalysis.com" &&
-		location.pathname.includes("/markets/heatmap")
-	) {
-		const mainText = normalize(
-			document.querySelector("main")?.innerText ||
-				document.body?.innerText ||
-				"",
-		);
-		const lines = linesFromText(mainText);
-		const startIdx = Math.max(
-			0,
-			lines.findIndex((line) => /S&P 500 .*Performance|Heatmap/i.test(line)),
-		);
-		const endIdx = lines.findIndex((line) =>
-			/^(SECTIONS|SERVICES|WEBSITE|COMPANY|MARKET NEWSLETTER|SITE THEME)$/i.test(
-				line,
-			),
-		);
-		const coreLines =
-			endIdx > startIdx ? lines.slice(startIdx, endIdx) : lines.slice(startIdx);
-		const title =
-			coreLines.find((line) => /S&P 500 .*Performance|Heatmap/i.test(line)) ||
-			normalize(document.title || "");
-		const description =
-			coreLines.find((line) =>
-				/stock performance by sector and industry|heatmap showing/i.test(line),
-			) ||
-			readMeta([
-				'meta[name="description"]',
-				'meta[property="og:description"]',
-			]) ||
-			title;
-		const sectorLines = uniquePieces(
-			coreLines.filter(
-				(line) =>
-					/^[A-Z][A-Za-z& /-]{3,40}$/.test(line) &&
-					!/^(Download|Full Width|Light|Dark|Log In|Sign Up|Home|Tools|Collapse)$/i.test(
-						line,
-					) &&
-					!/(Performance|Heatmap|Holdings Treemap)$/i.test(line),
-			),
-		).slice(0, 24);
-		const holdings = uniquePieces(
-			coreLines.filter((line) => /^[A-Z.]{1,6}[+-]?\d/.test(line)),
-		).slice(0, 30);
-		const content = clip(
-			cleanPieces([
-				title,
-				description,
-				sectorLines.length
-					? `Sectors and industries:\n${sectorLines.join(", ")}`
-					: "",
-				holdings.length
-					? `Representative holdings:\n${holdings.join(", ")}`
-					: "",
-			]).join("\n\n"),
-			contentLimit,
-		);
-		return {
-			summary: clip(description, 280),
-			content,
-		};
-	}
-
 	const blockSelectors = [
 		"main article",
 		"article",
+		".markdown-body",
+		"[itemprop='text']",
+		"[data-testid='code-view-lines']",
+		"table.js-file-line-container",
+		".js-file-line-container",
+		".highlight",
+		"pre",
 		"[role='main']",
 		"main",
 		".main-content",
@@ -597,22 +372,38 @@
 		content = broad.content;
 	}
 	if (content.length < 500) {
-		content = rawBody;
-		pieces = cleanPieces(content.split("\n\n"));
+		pieces = trimTrailingGarbage(
+			trimLeadingGarbage(filterObviousGarbage(linesFromText(rawBody))),
+		);
+		content = pieces.join("\n\n");
 		paragraphs = pieces.filter(
 			(piece) =>
-				piece.length >= 40 && !isCodeLike(piece) && !isBoilerplate(piece),
+				piece.length >= 40 &&
+				!isCodeLike(piece) &&
+				!isBoilerplate(piece) &&
+				!isUiGarbage(piece),
 		);
+	}
+	if (content.length >= 500) {
+		const filteredPieces = trimTrailingGarbage(
+			trimLeadingGarbage(filterObviousGarbage(linesFromText(content))),
+		);
+		const filteredContent = filteredPieces.join("\n\n");
+		if (filteredContent.length >= Math.min(400, content.length * 0.45)) {
+			content = filteredContent;
+			pieces = filteredPieces;
+			paragraphs = pieces.filter(
+				(piece) =>
+					piece.length >= 40 &&
+					!isCodeLike(piece) &&
+					!isBoilerplate(piece) &&
+					!isUiGarbage(piece),
+			);
+		}
 	}
 
 	const titleSummary = makeTitleSummary();
-	const metaDescription = normalize(
-		document
-			.querySelector(
-				"meta[name='description'], meta[property='og:description']",
-			)
-			?.getAttribute("content") || "",
-	);
+	const metaDescription = readMetaDescription();
 	let summarySource =
 		(!isCodeLike(metaDescription) && !isBoilerplate(metaDescription)
 			? metaDescription
