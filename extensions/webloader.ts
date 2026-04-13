@@ -33,6 +33,7 @@ const TEMP_OUTPUT_PREFIX = "pi-webloader-";
 const TEMP_OUTPUT_FILE = "output.txt";
 const TEMP_SCREENSHOT_FILE = "page.png";
 const MAX_LINKS = 25;
+const PLAYWRIGHT_RUNTIME_TMP_DIR = path.join(path.sep, "tmp", "pwcli");
 
 const PlaywrightLoaderParams = Type.Object({
 	url: Type.String({
@@ -134,12 +135,26 @@ async function ensurePlaywrightCli(
 	pi: ExtensionAPI,
 	cwd: string,
 ): Promise<void> {
+	await withFileMutationQueue(PLAYWRIGHT_RUNTIME_TMP_DIR, async () => {
+		await mkdir(PLAYWRIGHT_RUNTIME_TMP_DIR, { recursive: true });
+	});
 	const result = await pi.exec("which", ["playwright-cli"], { cwd });
 	if (result.code !== 0) {
 		throw new Error(
 			"playwright-cli is not available on PATH. Install @playwright/cli first.",
 		);
 	}
+}
+
+function getPlaywrightCommandArgs(session: string, args: string[]): string[] {
+	return [
+		`TMPDIR=${PLAYWRIGHT_RUNTIME_TMP_DIR}`,
+		`TMP=${PLAYWRIGHT_RUNTIME_TMP_DIR}`,
+		`TEMP=${PLAYWRIGHT_RUNTIME_TMP_DIR}`,
+		"playwright-cli",
+		`-s=${session}`,
+		...args,
+	];
 }
 
 async function runPlaywright(
@@ -150,7 +165,7 @@ async function runPlaywright(
 	timeoutMs: number,
 	signal?: AbortSignal,
 ) {
-	return pi.exec("playwright-cli", [`-s=${session}`, ...args], {
+	return pi.exec("env", getPlaywrightCommandArgs(session, args), {
 		cwd,
 		signal,
 		timeout: timeoutMs,
@@ -165,7 +180,7 @@ async function runPlaywrightRaw(
 	timeoutMs: number,
 	signal?: AbortSignal,
 ) {
-	return pi.exec("playwright-cli", [`-s=${session}`, "--raw", ...args], {
+	return pi.exec("env", getPlaywrightCommandArgs(session, ["--raw", ...args]), {
 		cwd,
 		signal,
 		timeout: timeoutMs,
