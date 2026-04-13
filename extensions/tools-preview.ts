@@ -139,6 +139,7 @@ function summarizeGenericArgs(record: Record<string, unknown>): string {
 		summarizePath(record.path),
 		summarizeQuoted(record.pattern),
 		summarizeQuoted(record.selector, 28),
+		summarizeText(record.screenshotMode, 16),
 		summarizeText(record.glob, 24),
 		summarizeText(record.query, 32),
 		summarizeText(record.format, 16),

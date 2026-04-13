@@ -290,7 +290,7 @@ export default function (pi: ExtensionAPI) {
 				const message = entry.message;
 				if (message.role === "toolResult" && message.toolName === "subagent") {
 					const details = message.details as SubagentDetails | undefined;
-					if (details && details.results) {
+					if (details?.results) {
 						for (const res of details.results) {
 							addSubagentRun(res);
 						}

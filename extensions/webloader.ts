@@ -1,11 +1,11 @@
 /**
  * Webloader Extension
  *
- * Loads a URL in a fresh headless `playwright-cli` session and returns the page title, final URL, extracted content, and optional links.
+ * Loads a URL in a fresh headless `playwright-cli` session and returns the page title, final URL, extracted content, and optional links. Screenshot fallback is enabled by default.
  */
 
 import { randomUUID } from "node:crypto";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -20,11 +20,18 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
+import {
+	linksEvalExpression,
+	readableEvalExpression,
+	selectorEvalExpression,
+} from "./webloader/browserScripts.js";
+
 const TOOL_NAME = "webloader";
 const TOOL_LABEL = "Webloader";
 const TOOL_TIMEOUT_MS = 45_000;
 const TEMP_OUTPUT_PREFIX = "pi-webloader-";
 const TEMP_OUTPUT_FILE = "output.txt";
+const TEMP_SCREENSHOT_FILE = "page.png";
 const MAX_LINKS = 25;
 
 const PlaywrightLoaderParams = Type.Object({
@@ -36,6 +43,15 @@ const PlaywrightLoaderParams = Type.Object({
 			description:
 				"Optional CSS selector or Playwright locator to extract instead of the full page.",
 		}),
+	),
+	screenshotMode: Type.Optional(
+		Type.Union(
+			[Type.Literal("off"), Type.Literal("fallback"), Type.Literal("always")],
+			{
+				description:
+					"Whether to save a page screenshot. Defaults to fallback, which captures a screenshot when the extracted text looks thin or suspicious.",
+			},
+		),
 	),
 	includeLinks: Type.Optional(
 		Type.Boolean({
@@ -53,9 +69,12 @@ const PlaywrightLoaderParams = Type.Object({
 interface PlaywrightLoaderParamsType {
 	url: string;
 	selector?: string;
+	screenshotMode?: ScreenshotMode;
 	includeLinks?: boolean;
 	timeoutMs?: number;
 }
+
+type ScreenshotMode = "off" | "fallback" | "always";
 
 interface PageLink {
 	text: string;
@@ -68,7 +87,10 @@ interface PlaywrightLoaderDetails {
 	title: string;
 	summary: string;
 	selector?: string;
+	screenshotMode: ScreenshotMode;
 	includeLinks: boolean;
+	screenshotPath?: string;
+	screenshotReason?: string;
 	truncated?: boolean;
 	fullOutputPath?: string;
 }
@@ -85,6 +107,10 @@ function normalizeTimeout(value?: number): number {
 		return TOOL_TIMEOUT_MS;
 	}
 	return Math.min(Math.trunc(value), 120_000);
+}
+
+function normalizeScreenshotMode(value?: ScreenshotMode): ScreenshotMode {
+	return value === "off" || value === "always" ? value : "fallback";
 }
 
 function makeSessionName(): string {
@@ -146,368 +172,55 @@ async function runPlaywrightRaw(
 	});
 }
 
-function readableEvalExpression(): string[] {
-	return [
-		"eval",
-		`() => {
-            const whitespacePattern = new RegExp("[ \\\\t]+", "g");
-            const newlinePattern = new RegExp("\\\\n{3,}", "g");
-            const contentLimit = 32000;
-            const normalize = (text) =>
-                (text || "")
-                    .split("\\u00a0").join(" ")
-                    .replace(whitespacePattern, " ")
-                    .replace(newlinePattern, "\\n\\n")
-                    .trim();
-            const clip = (text, limit) =>
-                text.length > limit ? text.slice(0, limit).trimEnd() + "..." : text;
-            const cleanPieces = (pieces) =>
-                pieces
-                    .map((piece) => normalize(piece))
-                    .filter(Boolean)
-                    .filter((piece, idx, arr) => idx === 0 || arr[idx - 1] !== piece);
-            const boilerplatePatterns = [
-                /^home$/i,
-                /^products$/i,
-                /^overview$/i,
-                /^get started$/i,
-                /^install$/i,
-                /^quickstart$/i,
-                /^changelog$/i,
-                /^philosophy$/i,
-                /^core components$/i,
-                /^agents$/i,
-                /^models$/i,
-                /^messages$/i,
-                /^tools$/i,
-                /^streaming$/i,
-                /^structured output$/i,
-                /^middleware$/i,
-                /^frontend$/i,
-                /^advanced usage$/i,
-                /^guardrails$/i,
-                /^runtime$/i,
-                /^context engineering$/i,
-                /^model context protocol/i,
-                /^human-in-the-loop$/i,
-                /^retrieval$/i,
-                /^long-term memory$/i,
-                /^agent development$/i,
-                /^on this page$/i,
-                /^stay organized with collections$/i,
-                /^save and categorize content based on your preferences\\.?$/i,
-                /^documentation$/i,
-            ];
-            const isBoilerplate = (piece) =>
-                boilerplatePatterns.some((pattern) => pattern.test(piece));
-            const isCodeLike = (piece) => {
-                if (!piece) {
-                    return false;
-                }
-                if (
-                    piece.includes("import ") ||
-                    piece.includes("const ") ||
-                    piece.includes("function ") ||
-                    piece.includes("class ")
-                ) {
-                    return true;
-                }
-                const codeMarkers = ["{", "}", "=>", "::", "npm install", "pip install"];
-                const markerHits = codeMarkers.filter((marker) => piece.includes(marker)).length;
-                return markerHits >= 2;
-            };
-            const trimLeadingGarbage = (pieces) => {
-                const trimmed = [...pieces];
-                while (trimmed.length > 1) {
-                    const candidate = trimmed[0];
-                    if (isBoilerplate(candidate)) {
-                        trimmed.shift();
-                        continue;
-                    }
-                    if (candidate.length < 40 && !/[.!?]/.test(candidate) && !isCodeLike(candidate)) {
-                        trimmed.shift();
-                        continue;
-                    }
-                    break;
-                }
-                return trimmed;
-            };
-            const makeTitleSummary = () => {
-                const headingText = normalize(
-                    document.querySelector("main h1, article h1, h1")?.textContent || "",
-                );
-                if (headingText) {
-                    return headingText;
-                }
-                const pageTitle = normalize(document.title || "");
-                return pageTitle
-                    .replace(/\\s+[|·-]\\s+[^|·-]+$/g, "")
-                    .trim();
-            };
-            const pickLongest = (selectors) => {
-                let best = null;
-                let bestLength = 0;
-                for (const selector of selectors) {
-                    for (const candidate of document.querySelectorAll(selector)) {
-                        const length = normalize(candidate.innerText || candidate.textContent || "").length;
-                        if (length > bestLength) {
-                            best = candidate;
-                            bestLength = length;
-                        }
-                    }
-                }
-                return best;
-            };
-            const pickSummary = (paragraphs, pieces, fallbackContent) =>
-                paragraphs.find((piece) => piece.length >= 80 && piece.length <= 320 && !isCodeLike(piece) && !isBoilerplate(piece)) ||
-                paragraphs.find((piece) => piece.length >= 40 && !isCodeLike(piece) && !isBoilerplate(piece)) ||
-                pieces.find((piece) => piece.length >= 80 && piece.length <= 320 && !isCodeLike(piece) && !isBoilerplate(piece)) ||
-                pieces.find((piece) => piece.length >= 40 && !isCodeLike(piece) && !isBoilerplate(piece)) ||
-                pieces.find((piece) => piece.length >= 80) ||
-                pieces[0] ||
-                fallbackContent.split("\\n\\n")[0] ||
-                "";
-            const extractFrom = (rootNode, selectors) => {
-                if (!rootNode) {
-                    return { pieces: [], paragraphs: [], content: "" };
-                }
-                const clone = rootNode.cloneNode(true);
-                for (const selector of selectors) {
-                    for (const node of clone.querySelectorAll(selector)) {
-                        node.remove();
-                    }
-                }
-                let pieces = [];
-                let paragraphs = [];
-                const nodes = clone.querySelectorAll(
-                    "h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,figcaption,td,th,dd,dt",
-                );
-                for (const node of nodes) {
-                    const text = normalize(node.innerText || node.textContent || "");
-                    if (!text) {
-                        continue;
-                    }
-                    pieces.push(text);
-                    const tagName = node.tagName.toLowerCase();
-                    if (
-                        tagName === "p" ||
-                        tagName === "li" ||
-                        tagName === "blockquote" ||
-                        tagName === "figcaption" ||
-                        tagName === "dd" ||
-                        tagName === "dt" ||
-                        tagName === "td"
-                    ) {
-                        paragraphs.push(text);
-                    }
-                }
-                pieces = trimLeadingGarbage(cleanPieces(pieces));
-                paragraphs = trimLeadingGarbage(cleanPieces(paragraphs));
-                let content = pieces.join("\\n\\n");
-                if (content.length < 300) {
-                    content = normalize(clone.innerText || clone.textContent || "");
-                }
-                return { pieces, paragraphs, content };
-            };
-            if (
-                location.hostname === "github.com" &&
-                location.pathname.includes("/blob/")
-            ) {
-                const title = normalize(document.title || "");
-                const codeNode =
-                    document.querySelector('[data-testid="code-view-lines"]') ||
-                    document.querySelector('[data-testid="read-only-cursor-text-area"]') ||
-                    document.querySelector(".react-code-text") ||
-                    document.querySelector("table.js-file-line-container") ||
-                    document.querySelector(".js-file-line-container") ||
-                    document.querySelector(".highlight");
-                const codeText = normalize(codeNode?.textContent || "");
-                const content = clip(
-                    codeText || normalize(document.body?.innerText || ""),
-                    contentLimit,
-                );
-                return {
-                    summary: clip(title, 280),
-                    content,
-                };
-            }
-            if (
-                location.hostname === "www.youtube.com" &&
-                location.pathname === "/watch"
-            ) {
-                const title =
-                    normalize(document.querySelector("h1")?.textContent || "") ||
-                    normalize(document.title || "");
-                const description =
-                    normalize(
-                        document.querySelector("#description-inline-expander")?.textContent ||
-                            document.querySelector('meta[name="description"]')?.getAttribute("content") ||
-                            "",
-                    );
-                const channel = normalize(
-                    document.querySelector("ytd-channel-name")?.textContent || "",
-                );
-                const pieces = cleanPieces([title, channel, description]);
-                const content = clip(pieces.join("\\n\\n"), contentLimit);
-                return {
-                    summary: clip(description || title, 280),
-                    content,
-                };
-            }
-            const blockSelectors = [
-                "main article",
-                "article",
-                "[role='main']",
-                "main",
-                ".main-content",
-                ".documentation",
-                ".docs-content",
-                ".docMainContainer",
-                ".theme-doc-markdown",
-                ".markdown",
-                ".md-content",
-                ".prose",
-                ".article-content",
-                ".article-body",
-                ".entry-content",
-                ".post-content",
-                ".post-body",
-                ".content",
-                ".story-body",
-                ".devsite-article",
-                ".devsite-content",
-                ".devsite-article-body",
-                ".documentation-content",
-            ];
-            const broadNoiseSelectors = [
-                "script",
-                "style",
-                "noscript",
-                "template",
-                "svg",
-                "canvas",
-                "video",
-                "audio",
-                "iframe",
-                "img",
-                "picture",
-                "source",
-                "form",
-                "button",
-                "input",
-                "select",
-                "textarea",
-                "nav",
-                "header",
-                "footer",
-                "aside",
-                "dialog",
-                "[aria-hidden='true']",
-                "[hidden]",
-                ".nav",
-                ".navbar",
-                ".sidebar",
-                ".footer",
-                ".header",
-                ".menu",
-                ".share",
-                ".social",
-                ".cookie",
-                ".consent",
-                ".advertisement",
-                ".ads",
-                ".breadcrumb",
-                ".related",
-                ".recommend",
-            ];
-            const focusedNoiseSelectors = [
-                ...broadNoiseSelectors,
-                "[class*='sidebar']",
-                "[class*='toc']",
-                "[class*='table-of-contents']",
-                "[class*='navigation']",
-                "[id*='sidebar']",
-                "[id*='toc']",
-                "[data-testid*='sidebar']",
-                "[data-testid*='toc']",
-                ".devsite-page-nav",
-                ".devsite-book-nav",
-                ".devsite-sidebar",
-                ".table-of-contents",
-                ".toc",
-                ".contents",
-            ];
-            const rawBody = normalize(
-                document.body?.innerText || document.documentElement?.innerText || "",
-            );
-            const focusedRoot =
-                pickLongest(blockSelectors) ||
-                document.querySelector("main") ||
-                document.body ||
-                document.documentElement;
-            const broadRoot =
-                document.querySelector("main") ||
-                focusedRoot ||
-                document.body ||
-                document.documentElement;
-            const focused = extractFrom(focusedRoot, focusedNoiseSelectors);
-            const broad = extractFrom(broadRoot, broadNoiseSelectors);
-            let pieces = focused.pieces;
-            let paragraphs = focused.paragraphs;
-            let content = focused.content;
-            const focusedTooThin =
-                content.length < 1200 ||
-                (rawBody.length > 4000 && content.length < rawBody.length * 0.18);
-            if (
-                focusedTooThin &&
-                broad.content.length > Math.max(content.length * 1.35, 1200)
-            ) {
-                pieces = broad.pieces;
-                paragraphs = broad.paragraphs;
-                content = broad.content;
-            }
-            if (content.length < 500) {
-                content = rawBody;
-                pieces = cleanPieces(content.split("\\n\\n"));
-                paragraphs = pieces.filter(
-                    (piece) => piece.length >= 40 && !isCodeLike(piece) && !isBoilerplate(piece),
-                );
-            }
-            const titleSummary = makeTitleSummary();
-            const metaDescription =
-                normalize(
-                    document
-                        .querySelector("meta[name='description'], meta[property='og:description']")
-                        ?.getAttribute("content") || "",
-                );
-            let summarySource =
-                (!isCodeLike(metaDescription) && !isBoilerplate(metaDescription)
-                    ? metaDescription
-                    : "") ||
-                (!isCodeLike(titleSummary) && !isBoilerplate(titleSummary)
-                    ? titleSummary
-                    : "") ||
-                pickSummary(paragraphs, pieces, content);
-            if (
-                isCodeLike(summarySource) ||
-                summarySource.includes("Stay organized with collections") ||
-                summarySource.includes("Save and categorize content based on your preferences")
-            ) {
-                summarySource = titleSummary || summarySource;
-            }
-            return {
-                summary: clip(summarySource, 280),
-                content: clip(content, contentLimit),
-            };
-        }`,
-	];
-}
+function chooseScreenshotReason(args: {
+	mode: ScreenshotMode;
+	title: string;
+	summary: string;
+	content: string;
+	finalUrl: string;
+}): string | undefined {
+	if (args.mode === "off") {
+		return;
+	}
+	if (args.mode === "always") {
+		return "always";
+	}
 
-function linksEvalExpression(): string[] {
-	return [
-		"eval",
-		`() => [...document.links].slice(0, ${MAX_LINKS}).map(link => ({ text: (link.textContent || '').trim(), href: link.href }))`,
+	const title = args.title.toLowerCase();
+	const summary = args.summary.toLowerCase();
+	const content = args.content.toLowerCase();
+	const suspiciousPhrases = [
+		"on this page",
+		"stay organized with collections",
+		"save and categorize content based on your preferences",
+		"shareinclude playlist",
+		"playback doesn't begin shortly",
+		"just a moment",
+		"enable javascript",
+		"loading",
+		"sign in",
+		"log in",
+		"authorize",
 	];
+	const suspicious =
+		suspiciousPhrases.some(
+			(phrase) => summary.includes(phrase) || content.includes(phrase),
+		) ||
+		title.includes("login") ||
+		title.includes("sign in") ||
+		args.finalUrl.includes("/login") ||
+		args.finalUrl.includes("/authorize");
+
+	if (suspicious) {
+		return "text-looked-suspicious";
+	}
+	if (args.content.length < 220) {
+		return "text-was-very-thin";
+	}
+	if (args.content.length < 800 && args.summary.length < 120) {
+		return "text-was-thin";
+	}
+	return;
 }
 
 function buildOutput(args: {
@@ -515,6 +228,8 @@ function buildOutput(args: {
 	finalUrl: string;
 	summary: string;
 	selector?: string;
+	screenshotPath?: string;
+	screenshotReason?: string;
 	links: PageLink[];
 	content: string;
 }): string {
@@ -539,6 +254,13 @@ function buildOutput(args: {
 
 	if (args.summary) {
 		output += `\n\nSummary:\n${args.summary}`;
+	}
+
+	if (args.screenshotPath) {
+		output += `\n\nScreenshot:\n${args.screenshotPath}`;
+		if (args.screenshotReason) {
+			output += `\nReason: ${args.screenshotReason}`;
+		}
 	}
 
 	output += `\n\nContent:\n${args.content || "(empty)"}`;
@@ -570,18 +292,50 @@ async function saveFullOutput(output: string): Promise<string> {
 	return tempFile;
 }
 
+async function saveScreenshot(
+	pi: ExtensionAPI,
+	cwd: string,
+	session: string,
+	timeoutMs: number,
+	signal?: AbortSignal,
+): Promise<string> {
+	const baseDir = path.join(cwd, ".playwright-cli");
+	await withFileMutationQueue(baseDir, async () => {
+		await mkdir(baseDir, { recursive: true });
+	});
+	const tempDir = await mkdtemp(path.join(baseDir, TEMP_OUTPUT_PREFIX));
+	const screenshotPath = path.join(tempDir, TEMP_SCREENSHOT_FILE);
+	const result = await runPlaywright(
+		pi,
+		cwd,
+		session,
+		["screenshot", "--full-page", `--filename=${screenshotPath}`],
+		timeoutMs,
+		signal,
+	);
+	if (result.code !== 0) {
+		throw new Error(
+			result.stderr.trim() ||
+				result.stdout.trim() ||
+				"playwright-cli screenshot failed",
+		);
+	}
+	return screenshotPath;
+}
+
 export default function playwrightLoader(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: TOOL_NAME,
 		label: TOOL_LABEL,
 		description:
-			"Load a URL in a fresh headless playwright-cli session and return cleaned readable content, the final URL, and optional links. This uses a fresh browser context, so authenticated sites may redirect to login.",
+			"Load a URL in a fresh headless playwright-cli session and return cleaned readable content, the final URL, and optional links. Screenshot fallback is enabled by default when the text looks thin or suspicious. This uses a fresh browser context, so authenticated sites may redirect to login.",
 		promptSnippet:
 			"Load a URL invisibly with headless Playwright and extract the useful readable page content.",
 		promptGuidelines: [
 			"Use webloader when you need website content without opening a visible browser window.",
 			"Expect a fresh browser context by default. Authenticated sites may redirect to login unless their state is loaded separately.",
 			"Prefer the cleaned readable output and avoid asking for raw page source through this tool.",
+			"Screenshot fallback is on by default. Set screenshotMode to off only when you explicitly do not want an image fallback.",
 		],
 		parameters: PlaywrightLoaderParams as never,
 
@@ -598,6 +352,7 @@ export default function playwrightLoader(pi: ExtensionAPI): void {
 			}
 
 			const includeLinks = rawParams.includeLinks === true;
+			const screenshotMode = normalizeScreenshotMode(rawParams.screenshotMode);
 			const timeoutMs = normalizeTimeout(rawParams.timeoutMs);
 			const selector = rawParams.selector?.trim() || undefined;
 			const session = makeSessionName();
@@ -654,11 +409,7 @@ export default function playwrightLoader(pi: ExtensionAPI): void {
 							ctx.cwd,
 							session,
 							selector
-								? [
-										"eval",
-										"el => { const whitespacePattern = new RegExp('[ \\\\t]+', 'g'); const newlinePattern = new RegExp('\\\\n{3,}', 'g'); const content = (el.innerText || el.textContent || '').split('\\u00a0').join(' ').replace(whitespacePattern, ' ').replace(newlinePattern, '\\n\\n').trim(); return { summary: '', content }; }",
-										selector,
-									]
+								? selectorEvalExpression(selector)
 								: readableEvalExpression(),
 							timeoutMs,
 							signal,
@@ -668,7 +419,7 @@ export default function playwrightLoader(pi: ExtensionAPI): void {
 									pi,
 									ctx.cwd,
 									session,
-									linksEvalExpression(),
+									linksEvalExpression(MAX_LINKS),
 									timeoutMs,
 									signal,
 								)
@@ -711,12 +462,30 @@ export default function playwrightLoader(pi: ExtensionAPI): void {
 								link.href.length > 0,
 						)
 					: [];
+				const screenshotReason = chooseScreenshotReason({
+					mode: screenshotMode,
+					title,
+					summary,
+					content,
+					finalUrl,
+				});
+				const screenshotPath = screenshotReason
+					? await saveScreenshot(
+							pi,
+							ctx.cwd,
+							session,
+							Math.min(timeoutMs, 30_000),
+							signal,
+						)
+					: undefined;
 
 				const output = buildOutput({
 					title,
 					finalUrl,
 					summary,
 					selector,
+					screenshotPath,
+					screenshotReason,
 					links,
 					content,
 				});
@@ -730,7 +499,10 @@ export default function playwrightLoader(pi: ExtensionAPI): void {
 					title,
 					summary,
 					selector,
+					screenshotMode,
 					includeLinks,
+					screenshotPath,
+					screenshotReason,
 				};
 
 				if (!truncation.truncated) {

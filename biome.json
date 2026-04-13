@@ -1,0 +1,7 @@
+{
+	"root": false,
+	"formatter": {
+		"indentStyle": "tab",
+		"lineWidth": 80
+	}
+}

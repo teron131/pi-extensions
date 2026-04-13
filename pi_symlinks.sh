@@ -55,6 +55,7 @@ link_path "${PI_REPO_ROOT}/extensions" "${PI_ROOT}/extensions"
 link_path "${PI_REPO_ROOT}/subagent/agents" "${PI_ROOT}/agents"
 link_path "${PI_REPO_ROOT}/subagent/prompts" "${PI_ROOT}/prompts"
 link_path "${PI_REPO_ROOT}/AGENTS.md" "${PI_ROOT}/AGENTS.md"
+link_path "${PI_REPO_ROOT}/biome.json" "${PI_ROOT}/biome.json"
 
 echo
 echo "Left local in ${PI_ROOT}:"
@@ -69,3 +70,4 @@ echo "  ${PI_REPO_ROOT}/extensions"
 echo "  ${PI_REPO_ROOT}/subagent/agents"
 echo "  ${PI_REPO_ROOT}/subagent/prompts"
 echo "  ${PI_REPO_ROOT}/AGENTS.md"
+echo "  ${PI_REPO_ROOT}/biome.json"

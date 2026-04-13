@@ -16,7 +16,7 @@ To load these into Pi, put them in `~/.pi/agent/extensions/`.
 
 **codemap** adds a deterministic `codemap` tool for repo and module analysis. Instead of relying only on freeform inspection, it runs a standardized stats pass that summarizes file layout, AST-level symbols, and import/export relationships, then truncates safely while preserving the full report in a temp file when needed.
 
-**webloader** adds a `webloader` tool that loads a URL in a fresh headless `playwright-cli` session and returns cleaned readable content, the final URL, and optional links. It is useful when you want website content without popping a visible browser window, while still using real browser loading instead of a plain HTTP fetch.
+**webloader** adds a `webloader` tool that loads a URL in a fresh headless `playwright-cli` session and returns cleaned readable content, the final URL, optional links, and a screenshot path when the text extraction looks thin. Screenshot fallback is enabled by default, and you can still force screenshots on or off explicitly. It is useful when you want website content without popping a visible browser window, while still using real browser loading instead of a plain HTTP fetch.
 
 **hashline** replaces Pi’s built-in `read` and `edit` tools with a hashline protocol. Instead of depending on exact old-text matches, it returns text as `LINE#ID:content` and lets edits target those anchors directly, which is better for mixed-model use because stale edits fail fast and retry cleanly.
 
@@ -46,6 +46,7 @@ This links the repo-owned Pi source paths into `~/.pi/agent/`:
 - `subagent/agents/` -> `~/.pi/agent/agents`
 - `subagent/prompts/` -> `~/.pi/agent/prompts`
 - `AGENTS.md` -> `~/.pi/agent/AGENTS.md`
+- `biome.json` -> `~/.pi/agent/biome.json`
 
 The script replaces any existing linked target directly and intentionally leaves local/runtime files alone:
 
