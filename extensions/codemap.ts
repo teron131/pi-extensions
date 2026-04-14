@@ -32,7 +32,7 @@ const CodemapParams = Type.Object({
 	path: Type.Optional(
 		Type.String({
 			description:
-				"Directory to inspect, relative to the current working directory. Leading @ is allowed.",
+				"File or directory to inspect, relative to the current working directory. Leading @ is allowed.",
 		}),
 	),
 });
