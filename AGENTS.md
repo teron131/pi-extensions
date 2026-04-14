@@ -25,15 +25,17 @@
 
 ## Skills Router
 
-- Repo map / onboarding / architecture -> `skills/codemap/SKILL.md`
-- Structural search / rename / codemod -> `skills/ast-grep/SKILL.md`
-- Refactor -> `skills/codemap/SKILL.md`, then `skills/refactor/SKILL.md`
-- Frontend build / redesign -> `skills/frontend-design/SKILL.md`; use `skills/uncodixfy/SKILL.md` as anti-pattern check
-- SSO / auth retrofit -> `skills/sso-auth/SKILL.md`
-- LangChain / LangGraph -> `skills/langchain-langgraph-references/SKILL.md`
-- FastMCP on Google Cloud -> `skills/deploy-mcp-gcloud/SKILL.md`
-- LLM stats / benchmark lookup -> `skills/llm-stats/SKILL.md`
-- Outside second opinion, only when useful or requested -> `skills/gemini-consultant/SKILL.md`
+- Start with `skills/codemap/SKILL.md` when you need first-pass repo understanding, onboarding context, architecture boundaries, or refactor scoping before broader search.
+- Use `skills/ast-grep/SKILL.md` when text search is not precise enough and you need syntax-aware matching, structural rename, codemods, or safe multi-file shape changes.
+- For refactors, begin with `skills/codemap/SKILL.md` to understand boundaries, then use `skills/refactor/SKILL.md` to simplify or reorganize code without changing behavior.
+- Use `skills/mermaid/SKILL.md` when the best answer is a durable visual explanation in docs, tickets, READMEs, or architecture notes, especially for workflows, interactions, state changes, schemas, or system structure.
+- Use `skills/ascii-art/SKILL.md` when the explanation should stay plain-text or terminal-native, or when a doc needs expressive text banners, framed callouts, cowsay-style output, or image-to-ASCII treatment.
+- Use `skills/frontend-design/SKILL.md` when the work depends on layout, art direction, visual hierarchy, or interface taste; use `skills/uncodixfy/SKILL.md` as the anti-pattern check against generic AI-looking UI.
+- Use `skills/sso-auth/SKILL.md` when adding or retrofitting login, logout, OIDC, bearer-token verification, or protected-route flows with minimal disruption to an existing app.
+- Use `skills/langchain-langgraph-references/SKILL.md` when building or debugging agents, tools, structured output, middleware, graph state, or stateful LLM workflows.
+- Use `skills/deploy-mcp-gcloud/SKILL.md` when deploying or operating a FastMCP server on Google Cloud Run, especially for OAuth wiring, stable URLs, or cost-safe defaults.
+- Use `skills/llm-stats/SKILL.md` when the task is model comparison, benchmark lookup, model selection, or tradeoff analysis across price, latency, context, and capability.
+- Use `skills/gemini-consultant/SKILL.md` only when an outside second opinion would help after meaningful progress, or when you are stuck and want a fresh review or plan check.
 
 **Delegate subagents**
 
