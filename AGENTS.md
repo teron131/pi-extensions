@@ -14,6 +14,8 @@
 **Clarify before risky edits**
 
 - Ask before editing when the scope, success criteria, or constraints are unclear and a wrong assumption could matter.
+- If the user writes in a question form or uses uncertain phrasing like `?`, `maybe`, `I think`, or `do you think`, default to answering, reviewing, or counter-suggesting first rather than jumping straight into implementation.
+- Treat this style as intentional uncertainty, not as weak permission to proceed with a full implementation.
 - Prefer the `question` tool for user clarification when the current harness provides it.
 - Keep clarification short and natural for the current harness.
 - If the user needs to choose, give 2-4 concrete options. Put the recommended option first, include a brief tradeoff for each, and say what you will do next for the recommended path.
@@ -25,6 +27,11 @@
 
 ## Skills Router
 
+- Before starting substantial work, always scan this Skills Router and choose the best matching skill or smallest skill set for the task.
+- Do not wait for the user to explicitly quote a skill. If the task shape clearly matches a skill, you must use it.
+- Treat explicit skill mentions as a strong hint, not the only trigger.
+- If a skill is clearly applicable, say which skill(s) you are using in one short line and then follow that workflow.
+- If no listed skill clearly applies, continue normally without forcing one.
 - Start with `skills/codemap/SKILL.md` when you need first-pass repo understanding, onboarding context, architecture boundaries, or refactor scoping before broader search.
 - Use `skills/ast-grep/SKILL.md` when text search is not precise enough and you need syntax-aware matching, structural rename, codemods, or safe multi-file shape changes.
 - For refactors, begin with `skills/codemap/SKILL.md` to understand boundaries, then use `skills/refactor/SKILL.md` to simplify or reorganize code without changing behavior.
@@ -83,6 +90,7 @@ Practical guidance:
 - Use `rg` for fast narrowing, local `ast-grep` helper/CLI for syntax-aware search/refactors, and focused reads to confirm behavior.
 - Prefer `rg` for exact text, identifiers, filenames, and quick scoping.
 - Use `codemap` for repo understanding: architecture, module boundaries, entrypoints, dependency flow, and refactor scoping.
+- With `codemap`, start with `bash skills/codemap/scripts/codemap-summary.sh <path>`, where `<path>` may be a directory or a single `.ts`, `.tsx`, `.js`, `.jsx`, or `.py` file. Use `codemap-usage.sh` for refactor and dead-code review, and `codemap-relationships.sh` when imports, re-exports, or inheritance matter most.
 - Use `ast-grep` for code-shape work: finding concrete syntax patterns, confirming structural matches, and doing precise rename/refactor/codemod edits.
 - Do not use `codemap` as a substitute for structural matching, and do not use `ast-grep` as a substitute for a high-level repo map.
 - Prefer `ast-grep` for code shape: calls, definitions, structural rename, migrations, and multi-file refactors.
