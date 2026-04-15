@@ -42,6 +42,7 @@
 - Use `skills/langchain-langgraph-references/SKILL.md` when building or debugging agents, tools, structured output, middleware, graph state, or stateful LLM workflows.
 - Use `skills/deploy-mcp-gcloud/SKILL.md` when deploying or operating a FastMCP server on Google Cloud Run, especially for OAuth wiring, stable URLs, or cost-safe defaults.
 - Use `skills/llm-stats/SKILL.md` when the task is model comparison, benchmark lookup, model selection, or tradeoff analysis across price, latency, context, and capability.
+- Use `skills/update-uv-deps/SKILL.md` when a `uv` project needs its declared dependency version bounds rewritten, because `uv`'s built-in update refreshes the lockfile but does not rewrite version numbers in `pyproject.toml`.
 - Use `skills/youtube/SKILL.md` when extracting YouTube transcripts, subtitles, or recent channel video listings without downloading media.
 - Use `skills/gemini-consultant/SKILL.md` only when an outside second opinion would help after meaningful progress, or when you are stuck and want a fresh review or plan check.
 
@@ -168,7 +169,6 @@ Python workflow:
 - Python repos: `uv` only. No pip, conda, or poetry.
 - Run Python tooling via `uv run`.
 - Typical init: `uv init <project-name> --package`, then `uv add --dev ruff pytest pytest-cov`.
-- On demand only: in a Python repo root, `/Users/teron/Projects/agents-config/hooks/update_deps.py` refreshes dependency lower bounds for `uv` projects.
 - Sandboxed harnesses: use repo-local interpreter or run from repo root with `uv run`.
 - Typical maintenance: `uv sync`, `uv run ruff check . --fix`, `uv run ruff format .`, `uv run pytest`.
 
