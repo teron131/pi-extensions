@@ -42,6 +42,7 @@
 - Use `skills/langchain-langgraph-references/SKILL.md` when building or debugging agents, tools, structured output, middleware, graph state, or stateful LLM workflows.
 - Use `skills/deploy-mcp-gcloud/SKILL.md` when deploying or operating a FastMCP server on Google Cloud Run, especially for OAuth wiring, stable URLs, or cost-safe defaults.
 - Use `skills/llm-stats/SKILL.md` when the task is model comparison, benchmark lookup, model selection, or tradeoff analysis across price, latency, context, and capability.
+- Use `skills/youtube/SKILL.md` when extracting YouTube transcripts, subtitles, or recent channel video listings without downloading media.
 - Use `skills/gemini-consultant/SKILL.md` only when an outside second opinion would help after meaningful progress, or when you are stuck and want a fresh review or plan check.
 
 **Delegate subagents**
