@@ -92,7 +92,7 @@ Practical guidance:
 - Use `rg` for fast narrowing, local `ast-grep` helper/CLI for syntax-aware search/refactors, and focused reads to confirm behavior.
 - Prefer `rg` for exact text, identifiers, filenames, and quick scoping.
 - Use `codemap` for repo understanding: architecture, module boundaries, entrypoints, dependency flow, and refactor scoping.
-- With `codemap`, start with `bash skills/codemap/scripts/codemap-summary.sh <path>`, where `<path>` may be a directory or a single `.ts`, `.tsx`, `.js`, `.jsx`, or `.py` file. Use `codemap-usage.sh` for refactor and dead-code review, and `codemap-relationships.sh` when imports, re-exports, or inheritance matter most.
+- With `codemap`, start with `bash skills/codemap/scripts/codemap.sh summary <path>`, where `<path>` may be a directory or a single `.ts`, `.tsx`, `.js`, `.jsx`, or `.py` file. Use `bash skills/codemap/scripts/codemap.sh usage <path>` for refactor and dead-code review, and `bash skills/codemap/scripts/codemap.sh relationships <path>` when imports, re-exports, or inheritance matter most.
 - Use `ast-grep` for code-shape work: finding concrete syntax patterns, confirming structural matches, and doing precise rename/refactor/codemod edits.
 - Do not use `codemap` as a substitute for structural matching, and do not use `ast-grep` as a substitute for a high-level repo map.
 - Prefer `ast-grep` for code shape: calls, definitions, structural rename, migrations, and multi-file refactors.

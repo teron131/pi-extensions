@@ -19,8 +19,8 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
-const CODEMAP_SUMMARY_SCRIPT =
-	"/Users/teron/Projects/agents-config/skills/codemap/scripts/codemap-summary.sh";
+const CODEMAP_SCRIPT =
+	"/Users/teron/Projects/agents-config/skills/codemap/scripts/codemap.sh";
 
 const TOOL_NAME = "codemap";
 const TOOL_LABEL = "Codemap";
@@ -83,7 +83,7 @@ async function runCodemapScript(
 	targetPath: string,
 	signal?: AbortSignal,
 ) {
-	return pi.exec("bash", [CODEMAP_SUMMARY_SCRIPT, targetPath], {
+	return pi.exec("bash", [CODEMAP_SCRIPT, "summary", targetPath], {
 		cwd,
 		signal,
 		timeout: TOOL_TIMEOUT_MS,
