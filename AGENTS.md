@@ -264,7 +264,8 @@ Imports and typing:
 - Prefer `str | None` over `Optional[str]`.
 - Python modules should have a meaningful file-level docstring when they define a real public surface, workflow, or domain role.
 - Public-facing APIs should have full docstrings with a short summary plus `Args` and `Returns` when relevant.
-- Otherwise, prefer at least a meaningful one-line docstring over no docstring.
+- For non-public Python helpers and for TS/JS helpers or modules, prefer at least a meaningful one-line docstring or comment over no documentation when a short intent note would help.
+- One-line docstrings or comments should be one complete sentence on the same line, not a broken fragment split across lines.
 
 Data structures:
 
