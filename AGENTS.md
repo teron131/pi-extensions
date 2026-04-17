@@ -38,6 +38,7 @@
 - Use `skills/mermaid/SKILL.md` when the best answer is a durable visual explanation in docs, tickets, READMEs, or architecture notes, especially for workflows, interactions, state changes, schemas, or system structure.
 - Use `skills/ascii-art/SKILL.md` when the explanation should stay plain-text or terminal-native, or when a doc needs expressive text banners, framed callouts, cowsay-style output, or image-to-ASCII treatment.
 - Use `skills/frontend-design/SKILL.md` when the work depends on layout, art direction, visual hierarchy, or interface taste; use `skills/uncodixfy/SKILL.md` as the anti-pattern check against generic AI-looking UI.
+- Use `skills/playwright-cli/SKILL.md` when browser work goes beyond simple page reading, especially for advanced web browsing, browser-driven scraping, frontend debugging, DOM or network inspection, or reproducing interactive site behavior.
 - Use `skills/sso-auth/SKILL.md` when adding or retrofitting login, logout, OIDC, bearer-token verification, or protected-route flows with minimal disruption to an existing app.
 - Use `skills/langchain-langgraph-references/SKILL.md` when building or debugging agents, tools, structured output, middleware, graph state, or stateful LLM workflows.
 - Use `skills/deploy-mcp-gcloud/SKILL.md` when deploying or operating a FastMCP server on Google Cloud Run, especially for OAuth wiring, stable URLs, or cost-safe defaults.
