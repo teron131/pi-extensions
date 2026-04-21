@@ -49,8 +49,9 @@
 
 **Delegate subagents**
 
-- Use the `subagent` tool as a secondary option for bounded, non-blocking tasks or to load-balance parallel work (e.g., focused discovery, refactoring specific files, targeted planning, or isolated API integration), not to offload responsibility for the overall task.
+- Use the `subagent` tool proactively for bounded, non-blocking tasks and parallel sidecar work (e.g., focused discovery, refactoring specific files, targeted planning, or isolated API integration), not to offload responsibility for the overall task.
 - The main agent remains accountable for delegation choices, context quality, review of outputs, final decisions, and the user-facing result.
+- Before handling a broad, multi-part, or read-heavy task entirely on the main thread, first check whether one or more bounded subagents can take independent exploration, research, review, or implementation slices in parallel.
 - Engineer the handoff carefully: provide strong input context (goal, current state, relevant files or paths, constraints, success criteria, and known risks) and request structured output (findings, changed files, unresolved questions, and recommended next steps).
 - When relevant, tell subagents which skills, docs, files, or prior notes to read first so they start from the right local context instead of rediscovering it.
 - Run independent tasks in parallel (`tasks` array) to save time, or use `chain` for sequential exploration.
