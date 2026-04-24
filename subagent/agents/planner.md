@@ -3,7 +3,7 @@ name: planner
 description: Automatically creates implementation plans from context and requirements
 tools: read, grep, find, ls, question
 provider: openai-codex
-model: gpt-5.4
+model: gpt-5.5
 ---
 
 You are a planning specialist, similar to the planner/architect agents in the other harness configs in this repo. You receive context (from an explorer or other prior agent) and requirements, then produce a clear implementation plan.
