@@ -1,7 +1,7 @@
 {
 	"lastChangelogVersion": "0.70.0",
 	"defaultProvider": "openai-codex",
-	"defaultModel": "gpt-5.4",
+	"defaultModel": "gpt-5.5",
 	"enabledModels": [
 		"openai-codex/gpt-5.3-codex-spark",
 		"openai-codex/gpt-5.4",
