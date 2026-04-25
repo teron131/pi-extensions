@@ -37,7 +37,11 @@
 - For refactors, begin with `skills/codemap/SKILL.md` to understand boundaries, then use `skills/refactor/SKILL.md` to simplify or reorganize code without changing behavior.
 - Use `skills/mermaid/SKILL.md` when the best answer is a durable visual explanation in docs, tickets, READMEs, or architecture notes, especially for workflows, interactions, state changes, schemas, or system structure.
 - Use `skills/ascii-art/SKILL.md` when the explanation should stay plain-text or terminal-native, or when a doc needs expressive text banners, framed callouts, cowsay-style output, or image-to-ASCII treatment.
-- Use `skills/frontend-design/SKILL.md` when the work depends on layout, art direction, visual hierarchy, or interface taste; use `skills/uncodixfy/SKILL.md` as the anti-pattern check against generic AI-looking UI.
+- For frontend work, route directly to the concrete design skill instead of a generic design prelude. Use `skills/frontend-taste/taste/SKILL.md` by default when implementation depends on layout, art direction, visual hierarchy, motion, spacing, color, or interface taste.
+- Use `skills/frontend-taste/gpt-taste/SKILL.md` for aggressive blank-slate or GPT/Codex first-pass generation, `skills/frontend-taste/redesign/SKILL.md` for existing UIs, `skills/frontend-taste/image-to-code/SKILL.md` when visual quality calls for generating and analyzing design images before coding, `skills/frontend-taste/highend-design/SKILL.md` for the local soft/premium agency direction, and `skills/frontend-taste/minimalist-ui/SKILL.md` or `skills/frontend-taste/brutalist-ui/SKILL.md` when the user requests that specific visual language.
+- For all frontend design work, keep the old high-level guardrails inline: optimize for hierarchy, restraint, product fit, responsive continuity, accessible polish, complete states, text containment, palette/type discipline, and purposeful motion. Avoid generic feature-card stacks, decorative dashboard chrome, fake premium gradients, ornamental labels, and branding that could fit any random AI startup mockup.
+- Use `skills/uncodixfy/SKILL.md` as the final anti-pattern check when the risk is generic AI-looking UI.
+- Use `skills/frontend-imagegen/frontend-imagegen-web/SKILL.md` or `skills/frontend-imagegen/frontend-imagegen-mobile/SKILL.md` only when the deliverable is generated design imagery or mockups, not frontend code.
 - Use `skills/playwright-cli/SKILL.md` when browser work goes beyond simple page reading, especially for advanced web browsing, browser-driven scraping, frontend debugging, DOM or network inspection, or reproducing interactive site behavior.
 - Use `skills/sso-auth/SKILL.md` when adding or retrofitting login, logout, OIDC, bearer-token verification, or protected-route flows with minimal disruption to an existing app.
 - Use `skills/langchain-langgraph-references/SKILL.md` when building or debugging agents, tools, structured output, middleware, graph state, or stateful LLM workflows.
@@ -112,7 +116,6 @@ MCP guidance:
 - Prefer MCP tools over ad-hoc shell or web flows when the current harness provides them.
 - Prefer the `question` tool over freeform chat when you need the user to confirm, choose, or provide missing inputs and the tool is available.
 - For library or framework docs, use `context7` first when available. Fall back to broader web search or examples only when needed.
-- Before frontend implementation or redesign, read `skills/frontend-design/SKILL.md`.
 - For frontend work, prefer `playwright-cli` when available for interactive loops, DOM/state inspection, and before/after verification.
 - For browser tasks, default to `playwright-cli`. Try `playwright-cli attach --extension=chrome` to reuse the current browser session and verify with `playwright-cli tab-list`. If attach only exposes the extension tab, fall back to a fresh Playwright browser session instead of assuming full current-session control.
 - For cloud or platform work, prefer platform MCP docs/tools first.
