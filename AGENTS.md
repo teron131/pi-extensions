@@ -6,296 +6,227 @@
 
 **Honor the harness**
 
-- Treat this file as a repo preference layer, not a replacement for system, developer, tool, or safety instructions.
-- Follow the current harness defaults for permissions, sandboxing, approvals, tool usage, message style, and interaction flow.
-- Do not force workflows the harness does not support. Adapt to the tools and capabilities that are actually available.
-- If a repo preference conflicts with the harness, keep the harness behavior and apply the repo preference where it still fits.
+- Treat this file as repo preferences layered below system, developer, tool, and safety instructions.
+- Follow the active harness for permissions, sandboxing, approvals, tools, message style, and interaction flow.
+- Use only workflows the harness supports. If repo guidance conflicts with the harness, keep the harness behavior and apply the repo preference where it still fits.
 
 **Clarify before risky edits**
 
-- Ask before editing when the scope, success criteria, or constraints are unclear and a wrong assumption could matter.
-- If the user writes in a question form or uses uncertain phrasing like `?`, `maybe`, `I think`, or `do you think`, default to answering, reviewing, or counter-suggesting first rather than jumping straight into implementation.
-- Treat this style as intentional uncertainty, not as weak permission to proceed with a full implementation.
-- Prefer the `question` tool for user clarification when the current harness provides it.
-- Keep clarification short and natural for the current harness.
-- If the user needs to choose, give 2-4 concrete options. Put the recommended option first, include a brief tradeoff for each, and say what you will do next for the recommended path.
-- Wait for clarification when uncertainty could cause wrong behavior, security or data risk, wasted spend, or major rework.
+- Ask before editing when unclear scope, success criteria, or constraints could cause wrong behavior, security/data risk, wasted spend, or major rework.
+- If the user writes uncertainly (`?`, `maybe`, `I think`, `do you think`), answer, review, or counter-suggest before implementing.
+- Prefer the `question` tool when the harness provides it; keep clarification short and natural.
+- When the user must choose, give 2-4 concrete options. Put the recommended option first, include brief tradeoffs, and say what you will do next for that path.
 
 **Verification**
 
-- JS/TS projects: run the repo's configured build, typecheck, or equivalent validation command using the repo's existing package manager. Prefer the `build` script when present.
+- JS/TS projects: run the repo's configured build, typecheck, or equivalent validation command with the existing package manager. Prefer `build` when present.
+- Frontend work: when a rendered page/app can be opened, use `playwright-cli` before or early in the change, iterate with DOM/state/screenshot checks, and verify after changes.
 
 ## Skills Router
 
-- Before starting substantial work, always scan this Skills Router and choose the best matching skill or smallest skill set for the task.
-- Do not wait for the user to explicitly quote a skill. If the task shape clearly matches a skill, you must use it.
-- Treat explicit skill mentions as a strong hint, not the only trigger.
-- If a skill is clearly applicable, say which skill(s) you are using in one short line and then follow that workflow.
-- If no listed skill clearly applies, continue normally without forcing one.
-- Start with `skills/codemap/SKILL.md` when you need first-pass repo understanding, onboarding context, architecture boundaries, or refactor scoping before broader search.
-- Use `skills/ast-grep/SKILL.md` when text search is not precise enough and you need syntax-aware matching, structural rename, codemods, or safe multi-file shape changes.
-- For refactors, begin with `skills/codemap/SKILL.md` to understand boundaries, then use `skills/refactor/SKILL.md` to simplify or reorganize code without changing behavior.
-- Use `skills/mermaid/SKILL.md` when the best answer is a durable visual explanation in docs, tickets, READMEs, or architecture notes, especially for workflows, interactions, state changes, schemas, or system structure.
-- Use `skills/ascii-art/SKILL.md` when the explanation should stay plain-text or terminal-native, or when a doc needs expressive text banners, framed callouts, cowsay-style output, or image-to-ASCII treatment.
-- For frontend work, route directly to the concrete design skill instead of a generic design prelude. Use `skills/frontend-taste/taste/SKILL.md` by default when implementation depends on layout, art direction, visual hierarchy, motion, spacing, color, or interface taste.
-- Use `skills/frontend-taste/gpt-taste/SKILL.md` for aggressive blank-slate or GPT/Codex first-pass generation, `skills/frontend-taste/redesign/SKILL.md` for existing UIs, `skills/frontend-taste/image-to-code/SKILL.md` when visual quality calls for generating and analyzing design images before coding, `skills/frontend-taste/highend-design/SKILL.md` for the local soft/premium agency direction, and `skills/frontend-taste/minimalist-ui/SKILL.md` or `skills/frontend-taste/brutalist-ui/SKILL.md` when the user requests that specific visual language.
-- For all frontend design work, keep the old high-level guardrails inline: optimize for hierarchy, restraint, product fit, responsive continuity, accessible polish, complete states, text containment, palette/type discipline, and purposeful motion. Avoid generic feature-card stacks, decorative dashboard chrome, fake premium gradients, ornamental labels, and branding that could fit any random AI startup mockup.
-- Use `skills/uncodixfy/SKILL.md` as the final anti-pattern check when the risk is generic AI-looking UI.
-- Use `skills/frontend-imagegen/frontend-imagegen-web/SKILL.md` or `skills/frontend-imagegen/frontend-imagegen-mobile/SKILL.md` only when the deliverable is generated design imagery or mockups, not frontend code.
-- Use `skills/playwright-cli/SKILL.md` when browser work goes beyond simple page reading, especially for advanced web browsing, browser-driven scraping, frontend debugging, DOM or network inspection, or reproducing interactive site behavior.
-- Use `skills/sso-auth/SKILL.md` when adding or retrofitting login, logout, OIDC, bearer-token verification, or protected-route flows with minimal disruption to an existing app.
-- Use `skills/langchain-langgraph-references/SKILL.md` when building or debugging agents, tools, structured output, middleware, graph state, or stateful LLM workflows.
-- Use `skills/deploy-mcp-gcloud/SKILL.md` when deploying or operating a FastMCP server on Google Cloud Run, especially for OAuth wiring, stable URLs, or cost-safe defaults.
-- Use `skills/llm-stats/SKILL.md` when the task is model comparison, benchmark lookup, model selection, or tradeoff analysis across price, latency, context, and capability.
-- Use `skills/update-uv-deps/SKILL.md` when a `uv` project needs its declared dependency version bounds rewritten, because `uv`'s built-in update refreshes the lockfile but does not rewrite version numbers in `pyproject.toml`.
-- Use `skills/youtube/SKILL.md` when extracting YouTube transcripts, subtitles, or recent channel video listings without downloading media.
-- Use `skills/gemini-consultant/SKILL.md` only when an outside second opinion would help after meaningful progress, or when you are stuck and want a fresh review or plan check.
+- Before substantial work, scan this router and use the best matching skill or smallest useful skill set.
+- Do not wait for explicit skill names. If the task clearly matches a skill, use it; treat explicit mentions as strong hints.
+- When a skill applies, say which skill(s) you are using in one short line, then follow that workflow.
+- If no skill clearly applies, continue normally.
 
-**Delegate subagents**
+Core routing:
 
-- Use the `subagent` tool proactively for bounded, non-blocking tasks and parallel sidecar work (e.g., focused discovery, refactoring specific files, targeted planning, or isolated API integration), not to offload responsibility for the overall task.
-- The main agent remains accountable for delegation choices, context quality, review of outputs, final decisions, and the user-facing result.
-- Before handling a broad, multi-part, or read-heavy task entirely on the main thread, first check whether one or more bounded subagents can take independent exploration, research, review, or implementation slices in parallel.
-- Engineer the handoff carefully: provide strong input context (goal, current state, relevant files or paths, constraints, success criteria, and known risks) and request structured output (findings, changed files, unresolved questions, and recommended next steps).
-- When relevant, tell subagents which skills, docs, files, or prior notes to read first so they start from the right local context instead of rediscovering it.
-- Run independent tasks in parallel (`tasks` array) to save time, or use `chain` for sequential exploration.
-- Give subagents explicit ownership, scope, constraints, success criteria, and output format to prevent them from drifting.
-- Repo agents may exist, such as `Explorer` for internal discovery, `Researcher` for external/current info, and `Planner` for analysis-only decomposition in OpenCode.
-- Keep immediate blocking implementation on the main thread unless the write is clearly separable.
-- Synthesize subagent results centrally before presenting them as final.
+- `skills/codemap/SKILL.md`: first-pass repo understanding, onboarding, architecture boundaries, entrypoints, or refactor scoping.
+- `skills/ast-grep/SKILL.md`: syntax-aware matching, structural rename, codemods, and safe multi-file code-shape changes when text search is not precise enough.
+- Refactors: start with `skills/codemap/SKILL.md`, then use `skills/refactor/SKILL.md`.
+- `skills/mermaid/SKILL.md`: durable diagrams for docs, tickets, READMEs, workflows, state changes, schemas, or system structure.
+- `skills/ascii-art/SKILL.md`: terminal-native/plain-text banners, framed callouts, cowsay-style output, or image-to-ASCII.
 
-## Default Loop
+Frontend routing:
+
+- For frontend work, route directly to a concrete design skill instead of a generic prelude.
+- Default to `skills/frontend-taste/taste/SKILL.md` when implementation depends on layout, art direction, hierarchy, motion, spacing, color, or interface taste.
+- Use `skills/frontend-taste/gpt-taste/SKILL.md` for aggressive blank-slate or GPT/Codex first-pass generation.
+- Use `skills/frontend-taste/redesign/SKILL.md` for existing UIs.
+- Use `skills/frontend-taste/image-to-code/SKILL.md` when visual quality calls for generating and analyzing design images before coding.
+- Use `skills/frontend-taste/highend-design/SKILL.md` for the local soft/premium agency direction.
+- Use `skills/frontend-taste/minimalist-ui/SKILL.md` or `skills/frontend-taste/brutalist-ui/SKILL.md` only when that visual language is requested.
+- Use `skills/frontend-imagegen/frontend-imagegen-web/SKILL.md` or `skills/frontend-imagegen/frontend-imagegen-mobile/SKILL.md` only for generated design imagery or mockups, not frontend code.
+- Use `skills/uncodixfy/SKILL.md` as the final anti-pattern check when the UI risks looking generic or AI-made.
+- Use `skills/playwright-cli/SKILL.md` for frontend implementation, redesign, or debugging whenever a rendered page/app can be opened, and for browser-driven inspection or reproduction.
+- Carry the high-level frontend bar into every design skill: hierarchy, restraint, product fit, responsive continuity, accessible polish, complete states, text containment, palette/type discipline, and purposeful motion. Avoid generic feature-card stacks, decorative dashboard chrome, fake premium gradients, ornamental labels, and branding that could fit any random AI startup mockup.
+
+Domain routing:
+
+- `skills/sso-auth/SKILL.md`: login, logout, OIDC, bearer-token verification, or protected-route flows.
+- `skills/langchain-langgraph-references/SKILL.md`: agents, tools, structured output, middleware, graph state, or stateful LLM workflows.
+- `skills/deploy-mcp-gcloud/SKILL.md`: FastMCP on Google Cloud Run, OAuth wiring, stable URLs, or cost-safe defaults.
+- `skills/llm-stats/SKILL.md`: model comparison, benchmark lookup, selection, or price/latency/context/capability tradeoffs.
+- `skills/update-uv-deps/SKILL.md`: rewrite `uv` dependency bounds in `pyproject.toml` after lockfile updates.
+- `skills/youtube/SKILL.md`: YouTube transcripts, subtitles, or recent channel listings without downloading media.
+- `skills/gemini-consultant/SKILL.md`: outside second opinion after meaningful progress, or when stuck.
+
+## Delegate Subagents
+
+- Think delegation-first for broad, multi-part, or read-heavy work: look for bounded sidecar tasks that can move in parallel with the main thread.
+- When the harness exposes subagents, use them proactively for non-blocking discovery, refactoring, planning, review, research, or isolated integration. The main agent remains accountable for scope, handoff quality, review, final decisions, and the user-facing result.
+- Before doing broad work entirely on the main thread, check whether subagents can handle independent exploration, research, review, or implementation slices. If no subagents exist, keep the same decomposition discipline locally.
+- Handoffs need goal, current state, relevant files/paths, constraints, success criteria, risks, explicit ownership, and requested output: findings, changed files, unresolved questions, and next steps.
+- When relevant, tell subagents which skills, docs, files, or notes to read first.
+- Run independent tasks in parallel (`tasks` array) or use `chain` for sequential exploration.
+- Repo agents may exist, such as `Explorer`, `Researcher`, and `Planner`.
+- Keep immediate blocking work on the main thread unless the write is clearly separable.
+- Synthesize subagent results centrally.
+
+## Operating Loop
 
 - Discover with `rg --files`, `rg`, and focused reads.
 - Plan the smallest safe change.
-- **State Management (Todo):** For _any_ multi-step or complex task, you can use the `todo` tool (`action: "add"`) to create a step-by-step checklist _before_ making file changes or running complex commands.
-  - Actively `toggle` items as you complete them and use `note` to document intermediate findings or blocked states.
-  - This prevents losing track of the plan, helps recover from context window resets, and keeps the user informed of progress.
+- For multi-step or complex tasks, use the `todo` tool (`action: "add"`) before file changes or complex commands.
+  Toggle items as they complete and use `note` for findings or blockers.
 - Edit minimally and match local naming and style.
-- Verify with required build, lint, and format commands.
+- Verify with the required build, lint, format, or focused test command.
 - Summarize what changed and why.
 
 ## Git Workflow
 
-- Before commit: `git diff --stat`, then `git diff`.
+- Before commit: inspect `git diff --stat`, then `git diff`.
 - Commit only meaningful, verified progress.
 - Use concise verb-first messages: `Add`, `Fix`, `Update`, `Remove`, `Improve`.
-- No `Refactor` unless the commit is truly refactor-only.
-- Report commit hash after success.
+- Use `Refactor` only for refactor-only commits.
+- Report the commit hash after success.
 
 ## Tool Strategy
 
-Default to read and search first, then edit or refactor. Use the smallest tool that gives reliable ground truth.
-
-- Start with `rg --files`, `rg`, and focused reads.
-- Use `ls` for quick orientation only.
-- Use `cat` or partial reads for exact content and direct ground truth.
-- Use `glob` or `rg --files` for file discovery when the path is not already known.
-- Use `rg` for mentions, symbols, and fast narrowing.
-
-Practical guidance:
-
-- Use `rg` for fast narrowing, local `ast-grep` helper/CLI for syntax-aware search/refactors, and focused reads to confirm behavior.
-- Prefer `rg` for exact text, identifiers, filenames, and quick scoping.
-- Use `codemap` for repo understanding: architecture, module boundaries, entrypoints, dependency flow, and refactor scoping.
-- With `codemap`, start with `bash skills/codemap/scripts/codemap.sh summary <path>`, where `<path>` may be a directory or a single `.ts`, `.tsx`, `.js`, `.jsx`, or `.py` file. Use `bash skills/codemap/scripts/codemap.sh usage <path>` for refactor and dead-code review, and `bash skills/codemap/scripts/codemap.sh relationships <path>` when imports, re-exports, or inheritance matter most.
-- Use `ast-grep` for code-shape work: finding concrete syntax patterns, confirming structural matches, and doing precise rename/refactor/codemod edits.
-- Do not use `codemap` as a substitute for structural matching, and do not use `ast-grep` as a substitute for a high-level repo map.
-- Prefer `ast-grep` for code shape: calls, definitions, structural rename, migrations, and multi-file refactors.
-- Before doing a multi-file code rewrite or rename, prefer `ast-grep` preview or a saved rule over regex replacement.
-- For exploration, repo mapping, or refactor scoping, read `skills/codemap/SKILL.md` first and use it as the first-pass architecture map before broader search.
+- Default to read/search first, then edit or refactor. Use the smallest tool that gives reliable ground truth.
+- Start with `rg --files`, `rg`, and focused reads. Use `ls` only for quick orientation, `cat` or partial reads for exact content, and `glob`/`rg --files` for file discovery.
+- Scope searches before widening, for example `rg -g '*.ts' pattern src/`.
 - Parallelize independent reads and searches.
-- Scope searches first, for example `rg -g '*.ts' pattern src/`, then widen.
-- Predict your workflow: use the standard `read` tool if you think the file is not for immediate or frequent editing. Otherwise, use `hashline_read` because `hashline_edit` is better but requires those anchors first.
-- Use `ast-grep` via the local helper script or CLI for structural search and syntax-aware refactors.
-- Use `grep-app_*` for real-world usage patterns, not official docs.
-- Prefer platform MCP docs/tools for product-specific work when available.
+- Use `codemap` for repo understanding, architecture boundaries, entrypoints, dependency flow, onboarding, and refactor scoping. Start with `bash skills/codemap/scripts/codemap.sh summary <path>`; use `usage` for refactor/dead-code review and `relationships` for imports, re-exports, or inheritance.
+- Use `ast-grep` for code shape: calls, definitions, structural rename, codemods, and safe multi-file rewrites. Prefer an `ast-grep` preview or saved rule over regex replacement.
+- Do not use `codemap` as a substitute for structural matching or `ast-grep` as a substitute for a high-level repo map.
+- Use standard `read` for files unlikely to be edited soon; use `hashline_read` when editing is likely because `hashline_edit` needs those anchors.
 
 MCP guidance:
 
-- Prefer MCP tools over ad-hoc shell or web flows when the current harness provides them.
-- Prefer the `question` tool over freeform chat when you need the user to confirm, choose, or provide missing inputs and the tool is available.
-- For library or framework docs, use `context7` first when available. Fall back to broader web search or examples only when needed.
-- For frontend work, prefer `playwright-cli` when available for interactive loops, DOM/state inspection, and before/after verification.
-- For browser tasks, default to `playwright-cli`. Try `playwright-cli attach --extension=chrome` to reuse the current browser session and verify with `playwright-cli tab-list`. If attach only exposes the extension tab, fall back to a fresh Playwright browser session instead of assuming full current-session control.
-- For cloud or platform work, prefer platform MCP docs/tools first.
-- Priority: `context7` for official docs, local `ast-grep` helper/CLI for structure, `grep-app_*` for public examples.
+- Prefer MCP tools over ad-hoc shell or web flows when the harness provides them.
+- Use `context7` first for library/framework docs; fall back to web search or examples only when needed.
+- Use platform MCP docs/tools first for cloud or platform work.
+- Use `grep-app_*` for real-world usage patterns, not official docs.
 
 ## Refactor Discipline
 
-- Before any refactor task, read `skills/codemap/SKILL.md` first, then `skills/refactor/SKILL.md`.
-- For heavier changes, once meaningful progress is working: review the full diff, refactor for clarity without changing behavior, then create a temporary commit checkpoint.
+- Before refactors, read `skills/codemap/SKILL.md`, then `skills/refactor/SKILL.md`.
+- For heavier changes, once meaningful progress works: review the full diff, simplify without changing behavior, then create a temporary commit checkpoint.
 
 ## Working Defaults
 
 General shape:
 
 - Match existing repo shape before inventing a new one.
-- Backend Python repos: repo-root snake_case package first.
-- Build backend features in the package first; repo-root `test_*.py` stays a thin exercise script.
-- Root entrypoints like `app.py`, `main.py`, `mcp_server.py` only when they earn it.
-- `frontend/`, `src/`, `routes/`, `app/`, `components/`, `hooks/`, `lib/`, `mcp/`, `ui/`, `convex/` are fine when they reflect real boundaries.
-- Keep files whole until clear stage / role splits appear; then use predictable siblings like `nodes/`, `graph.py`, `state.py`, `prompts.py`, `schemas.py`, `api.py`.
+- Backend Python repos: repo-root `snake_case` package first. Root `app.py`, `main.py`, or `mcp_server.py` only when earned.
+- Build backend features in the package; repo-root `test_*.py` stays a thin exercise script.
+- `frontend/`, `src/`, `routes/`, `app/`, `components/`, `hooks/`, `lib/`, `mcp/`, `ui/`, and `convex/` are fine when they reflect real boundaries.
+- Keep files whole until clear stage or role splits appear; then use predictable siblings like `nodes/`, `graph.py`, `state.py`, `prompts.py`, `schemas.py`, `api.py`.
 - Avoid new `*.ipynb` files by default.
 - Fullstack or multi-process apps: keep repo-root `start.sh` current.
 
 Fullstack contracts:
 
-- Prefer one TS codebase when practical.
-- If safe, prefer one TS codebase with shared transport contracts.
-- Full TS apps: one shared contract module such as `src/contracts/`, `lib/contracts/`, or `packages/contracts/`.
-- If Python is needed: `FastAPI + Pydantic` owns transport; generate TS types from OpenAPI.
-- Python -> TS apps: use a backend contract module, `scripts/export_openapi.py`, `frontend/src/api-generated.ts`, `frontend/src/api-contracts.ts`, `frontend/src/api.ts`.
-- UI-only state separate from transport contracts.
+- Prefer one TS codebase with shared transport contracts when practical and safe.
+- Full TS apps: use one shared contract module such as `src/contracts/`, `lib/contracts/`, or `packages/contracts/`.
+- Python -> TS apps: let `FastAPI + Pydantic` own transport; generate TS types from OpenAPI through a backend contract module, `scripts/export_openapi.py`, `frontend/src/api-generated.ts`, `frontend/src/api-contracts.ts`, and `frontend/src/api.ts`.
+- Keep UI-only state separate from transport contracts.
 - Never hand-maintain duplicate API contracts.
-- Generated transport types for API boundary; handwritten frontend types for UI state, presentation transforms, local component needs.
-- Backend schema changes -> regenerate contracts before trusting the frontend build.
+- Generated transport types belong at the API boundary; handwritten frontend types belong to UI state, presentation transforms, local component needs.
+- Backend schema changes require regenerated contracts before trusting the frontend build.
 
 Feature testing scripts:
 
 - Feature work: repo-root scratch scripts named `test_*.py` or `test_*.ts`.
-- Scratch scripts import package code; do not become the implementation.
+- Scratch scripts import package code; they do not become the implementation.
 - No `argparse` in scratch test scripts.
 - Example-based testing: at most 3 examples unless explicitly requested.
-- Nested or module `AGENTS.md` codemaps are reference-only; may be stale.
+- Nested or module `AGENTS.md` codemaps are reference-only and may be stale.
 
-## Compatibility, Package Management, and Test Policy
+## Compatibility, Package Management, and Tests
 
 Core policy:
 
 - Preserve existing model names unless code references force an update.
-- Replace old implementations directly by default.
-- No shims, dual paths, or feature flags unless explicitly requested.
+- Replace old implementations directly by default. No shims, dual paths, or feature flags unless explicitly requested.
 - Follow the repo's declared package manager and lockfile.
-- New TS/JS repos: default to `pnpm` unless the repo already standardized elsewhere.
 
-Python workflow:
+Python:
 
-- Python repos: `uv` only. No pip, conda, or poetry.
-- Run Python tooling via `uv run`.
+- Python `3.13+`; use `uv` only. No pip, conda, or poetry.
+- Run Python tooling via `uv run`; in sandboxed harnesses, use the repo-local interpreter or run from repo root.
 - Typical init: `uv init <project-name> --package`, then `uv add --dev ruff pytest pytest-cov`.
-- Sandboxed harnesses: use repo-local interpreter or run from repo root with `uv run`.
 - Typical maintenance: `uv sync`, `uv run ruff check . --fix`, `uv run ruff format .`, `uv run pytest`.
 
-TS/JS workflow:
+TS/JS:
 
-- New TS/JS default stack: `typescript`, `tsx`, `prettier`, `eslint`, `vitest`.
-- No Biome by default unless the repo already uses it cleanly or the user explicitly wants it.
-- Skip full test suites by default.
-- Run syntax checks and formatting unless the user explicitly asks for broader tests.
+- New TS/JS repos default to `pnpm`, `typescript`, `tsx`, `prettier`, `eslint`, and `vitest`.
+- Do not use Biome by default unless the repo already uses it cleanly or the user explicitly wants it.
+- Skip full test suites by default; run syntax checks and formatting unless the user asks for broader tests.
 
 ## Code Style
 
-Keep code simple, explicit, and minimal. Preserve behavior unless asked otherwise.
+Keep code simple, explicit, minimal, and behavior-preserving.
 
-General:
+Structure:
 
-- Prefer clear and explicit code over clever code.
-- Keep the main flow easy to read top-to-bottom, even if that means less abstraction.
+- Keep the main flow readable top-to-bottom.
 - Keep related logic together while it shares context, imports, and one main reason to change.
-- Split files or helpers only when there is a real boundary such as a stage, role, consumer, or reuse point.
-- When a long file becomes hard to scan, split it by stable roles rather than arbitrary line-count targets.
+- Split files or helpers only for real stages, roles, consumers, reuse, or navigation boundaries; do not split just to shrink a file.
+- Prefer predictable boundaries such as entrypoints, transport contracts, prompts, workflow state/wiring, generated code, domain modules, `nodes/`, `graph.py`, `state.py`, `prompts.py`, `schemas.py`, `api.py`, `api-generated.ts`, and `api-contracts.ts`.
+- Prefer subdirectories when sibling files belong to one domain and are likely to be edited one stage at a time.
 - Remove dead paths, reduce redundancy, and introduce constants instead of magic values.
 - Targets: about 100 lines max per function and at most 3 nesting levels.
+
+Abstraction:
+
+- Prefer clear explicit code over clever code.
 - Do not create wrappers that are used once, only forward arguments, or merely rename obvious inline logic.
-- Extract code when it isolates I/O, parsing, validation, error boundaries, meaningful transformations, reuse, or real nesting reduction.
+- Extract code only when it isolates I/O, parsing, validation, error boundaries, meaningful transformations, reuse, or real nesting reduction.
 - Prefer passing a cohesive object over field-by-field argument plumbing.
 - Keep one-off micro-helpers inline unless they clearly improve structure.
-- Make repeated patterns and error-handling shapes look the same.
-
-Structure and splitting:
-
-- Prefer real roles such as entrypoints, transport contracts, prompts, workflow state, workflow wiring, generated code, and domain modules.
-- When you split, use predictable boundaries like `nodes/`, `graph.py`, `state.py`, `prompts.py`, `schemas.py`, `api.py`, `api-generated.ts`, or `api-contracts.ts`.
-- Prefer subdirectories when sibling files belong to one domain and are likely to be edited one stage at a time.
-- Do not split a file just to make it smaller if the result is extra indirection without a clearer mental model.
+- Make repeated patterns and error-handling shapes consistent.
 
 Naming:
 
-- Use language-idiomatic naming: Python `snake_case`, JS/TS `camelCase`, classes/components `PascalCase`.
-- Use one name per concept within a scope.
-- Meaningful by default: prefer clear names, but do not make them longer than the idea needs.
-- Default to full words over abbreviations: `session` not `sess`, `time` not `t`, `config` not `cfg`.
-- Do not invent new shorthand just to make a name shorter.
-- Avoid ultra-short or ambiguous names, especially single-letter names for variables, params, and temporaries.
-- Short names are allowed only when standard and unambiguous: `id`, `idx`, `url`.
-- Prefer explicit index names: `idx`, `item_idx`, `line_idx` over bare `i`.
-- Series stay aligned: related files, types, functions, and variables should use the same naming pattern.
-- Conventions:
-  - classes: `CamelCase`
-  - variables/functions: Python `snake_case`, JS/TS `camelCase`
-  - constants: `ALL_CAPS`
-  - booleans: clear predicate names
-  - Python modules: `snake_case.py`
-  - TS/JS helpers and modules: usually `camelCase.ts` / `camelCase.js`
-  - React components and screens: usually `PascalCase.tsx`
-  - Tests: `test_*.py` in Python and `*.test.ts` / `*.test.tsx` in TS/JS
-- Keep parallel names parallel. Good examples are `LoaderInput` / `LoaderOutput` / `LoaderState`, `source-stage` / `match-stage` / `final-stage`, and `api.ts` / `api-contracts.ts` / `api-generated.ts`.
-- Keep repo-root scratch or verification scripts in the same series too: `test_loader.py`, `test_contract_export.py`, `test_api_client.ts`.
+- Use language-idiomatic names: Python `snake_case`; JS/TS `camelCase`; classes/components `PascalCase`; constants `ALL_CAPS`.
+- Use one name per concept. Keep related files, types, functions, variables, and scratch scripts in the same series.
+- Prefer clear names and full words without needless length: `session`, `time`, `config`; conventional short names like `id`, `idx`, `url` are fine.
+- Avoid invented shorthand, ultra-short ambiguous names, and bare index variables; prefer `idx`, `item_idx`, `line_idx`.
+- Booleans should read as predicates.
+- Python modules use `snake_case.py`; TS/JS helpers usually `camelCase.ts`/`.js`; React components/screens usually `PascalCase.tsx`; tests use `test_*.py` or `*.test.ts`/`.tsx`.
+- Good parallel series: `LoaderInput` / `LoaderOutput` / `LoaderState`, `source-stage` / `match-stage` / `final-stage`, `api.ts` / `api-contracts.ts` / `api-generated.ts`, `test_loader.py` / `test_contract_export.py` / `test_api_client.ts`.
 
-Pattern preferences:
+Patterns:
 
-- Prefer `dict.get(k)` over `dict.get(k, None)`.
-- Prefer `if not x` over `if len(x) == 0`.
-- Prefer `if x` over `if x == True`.
-- Prefer `for i, item in enumerate(items)` over indexing loops.
-- Prefer `for x, y in zip(a, b)` over parallel index loops.
-- Prefer `any(...)` / `all(...)` over flag loops for existence checks.
-- Convert repeated `x in list` lookups to sets.
-- Use comprehensions for simple transforms and loops for more complex logic.
+- Prefer `dict.get(k)` over `dict.get(k, None)`, `if not x` over `len(x) == 0`, and `if x` over `if x == True`.
+- Prefer `enumerate`, `zip`, `any(...)`, `all(...)`, and sets for repeated membership checks.
+- Use comprehensions for simple transforms and loops for complex logic.
 - Prefer named functions over `lambda` for named operations.
 - Use f-strings.
-- Keep simple logging calls on one line and avoid trailing commas when no wrapping is needed.
-- Keep log calls compact and scannable, for example `logger.info(f"[MAIN] Processing {file_count} file(s)")` or `logger.warning("[MAIN] No PDF files found")`.
-- For LLM calls, prefer a small staged shape such as `llm = ...`, `messages = [...]`, then `response = llm.invoke(messages)`.
+- Keep simple logging calls compact and on one line, without trailing commas when no wrapping is needed.
+- For LLM calls, prefer staged shape: `llm = ...`, `messages = [...]`, then `response = llm.invoke(messages)`.
 - Remove redundant `else` after early returns, impossible branches, and duplicate `None` checks.
 
 ## Python Standards
 
-Defaults:
-
-- Python `3.13+`
-- `uv`
-- signature type annotations
-- `pathlib.Path`
-- Ruff via `uv run`
-- `pydantic-settings` for non-trivial config
-
-Imports and typing:
-
-- Order imports as stdlib, third-party, local, with blank lines between groups.
-- Annotate function signatures; skip obvious local variable annotations.
-- Prefer `list[str]` and `dict[str, int]` over `List` and `Dict`.
-- Prefer `str | None` over `Optional[str]`.
-- Python modules should have a meaningful file-level docstring when they define a real public surface, workflow, or domain role.
-- Public-facing APIs should have full docstrings with a short summary plus `Args` and `Returns` when relevant.
-- For non-public Python helpers and for TS/JS helpers or modules, prefer at least a meaningful one-line docstring or comment over no documentation when a short intent note would help.
-- One-line docstrings or comments should be one complete sentence on the same line, not a broken fragment split across lines.
-
-Data structures:
-
-- Use `dataclass` for simple internal containers, `BaseSettings` for config, and `BaseModel` for external input validation.
-
-Function design:
-
-- Order parameters as required, optional, `*`, keyword-only, `**kwargs`.
-- Aim for about 5 parameters or fewer. Group related arguments into an object when they travel together.
-- Use keyword-only flags, consistent return types, and never use mutable defaults.
-- Prefer a few cohesive functions over many tiny wrappers.
-- Do not define single-use, argument-heavy helpers unless they clearly improve structure or isolate an I/O or error boundary.
+- Defaults: Python `3.13+`, `uv`, signature type annotations, `pathlib.Path`, Ruff via `uv run`, and `pydantic-settings` for non-trivial config.
+- Imports: stdlib, third-party, local, with blank lines between groups.
+- Typing: annotate function signatures, skip obvious local variable annotations, prefer `list[str]`/`dict[str, int]` and `str | None`.
+- Docs: meaningful file docstrings for real public surfaces, workflows, or domain roles; full public API docstrings with summary plus `Args`/`Returns` when relevant; otherwise a useful one-line docstring/comment when intent would help. One-line docs should be complete sentences on one line.
+- Data structures: use `dataclass` for simple internal containers, `BaseSettings` for config, and `BaseModel` for external input validation.
+- Function design: order params as required, optional, `*`, keyword-only, `**kwargs`; aim for about 5 params or fewer; group related args; use keyword-only flags, consistent returns, and no mutable defaults.
+- Prefer a few cohesive functions over many tiny wrappers. Do not define single-use, argument-heavy helpers unless they clarify structure or isolate I/O/error boundaries.
 
 ## Environment and Verification
 
-Operational defaults:
-
 - Use `BaseSettings` for non-trivial config and load `.env` at entrypoints only.
-- Use stdlib `logging`; avoid `print()` in production.
-- Never log secrets.
-- For TS/JS projects, follow the existing package manager, lockfile, build scripts, and formatter/linter stack. For new repos, default to `pnpm`, `tsx`, `prettier`, `eslint`, and `vitest`.
-- Prefer `Prettier + ESLint` for new repos unless the repo already uses Biome cleanly or the user explicitly wants Biome.
+- Use stdlib `logging`; avoid `print()` in production and never log secrets.
+- TS/JS projects: follow the existing package manager, lockfile, build scripts, and formatter/linter stack. New repos default to `pnpm`, `tsx`, `prettier`, `eslint`, and `vitest`; prefer Prettier + ESLint unless the repo already uses Biome cleanly or the user explicitly wants Biome.
 - Use `tsc --noEmit` for typechecking and `tsx` for local script execution.
 
-Formatting and test commands:
+Common commands:
 
 - `uv run ruff check . --fix`
 - `uv run ruff format .`
@@ -310,6 +241,6 @@ Formatting and test commands:
 ## Advanced Guidance
 
 - Error handling: avoid broad `try/except`; handle external API, network, and user-file I/O boundaries explicitly; never swallow tracebacks or silently return `None`.
-- Concurrency: use `asyncio` / `httpx.AsyncClient` for concurrent I/O, `ThreadPoolExecutor` for parallel I/O batches, and `ProcessPoolExecutor` for CPU-bound batches. Keep CPU-only paths sync unless there is a clear reason not to. Avoid multiple `asyncio.run()` calls, never use `time.sleep()` in async code, and offload blocking I/O in async paths with executors when needed.
+- Concurrency: use `asyncio` / `httpx.AsyncClient` for concurrent I/O, `ThreadPoolExecutor` for parallel I/O batches, and `ProcessPoolExecutor` for CPU-bound batches. Keep CPU-only paths sync unless async clearly helps. Avoid multiple `asyncio.run()` calls, never use `time.sleep()` in async code, and offload blocking I/O in async paths.
 - I/O and security: prefer `httpx` with timeouts, retry only idempotent requests, use `pathlib.Path` plus UTF-8/context managers for file I/O, avoid `eval()` and `pickle` on untrusted input, and use list args with `subprocess.run()`.
 - Debugging and caching: use `@cache` or `@lru_cache(maxsize=128)` when justified, use `breakpoint()` or `print(f"{value=}")` locally, and use structured logging in production.
