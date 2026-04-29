@@ -161,6 +161,7 @@ Python:
 
 TS/JS:
 
+- Use `pnpm` for JavaScript and TypeScript package management the same way Python projects use `uv`. Do not use `npm`, `npx`, Yarn, or Bun unless a repo explicitly requires a different package manager.
 - New TS/JS repos default to `pnpm`, `typescript`, `tsx`, `prettier`, `eslint`, and `vitest`.
 - Do not use Biome by default unless the repo already uses it cleanly or the user explicitly wants it.
 - Skip full test suites by default; run syntax checks and formatting unless the user asks for broader tests.
