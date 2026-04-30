@@ -2,8 +2,10 @@
 name: planner
 description: Automatically creates implementation plans from context and requirements
 tools: read, grep, find, ls, question
-provider: openai-codex
-model: gpt-5.5
+model:
+  provider: openai-codex
+  id: gpt-5.5
+  reasoningEffort: high
 ---
 
 # Planner

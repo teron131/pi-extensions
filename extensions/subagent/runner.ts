@@ -131,6 +131,7 @@ export async function runSingleAgent(
 	const effectiveCwd = cwd ?? defaultCwd;
 	if (agent.provider) args.push("--provider", agent.provider);
 	if (agent.model) args.push("--model", agent.model);
+	if (agent.reasoningEffort) args.push("--thinking", agent.reasoningEffort);
 	if (agent.tools && agent.tools.length > 0) {
 		const filteredTools = agent.tools.filter((t) => t !== "subagent");
 		if (filteredTools.length > 0) {

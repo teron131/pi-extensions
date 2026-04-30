@@ -220,11 +220,15 @@ function getDisplayItems(messages: SingleResult["messages"]): DisplayItem[] {
 }
 
 function getAgentModelLabel(
-	agent: Pick<AgentConfig, "provider" | "model">,
+	agent: Pick<AgentConfig, "provider" | "model" | "reasoningEffort">,
 ): string {
-	return agent.provider && agent.model
-		? `${agent.provider}/${agent.model}`
-		: agent.model || agent.provider || "session-default";
+	const modelLabel =
+		agent.provider && agent.model
+			? `${agent.provider}/${agent.model}`
+			: agent.model || agent.provider || "session-default";
+	return agent.reasoningEffort
+		? `${modelLabel} (reasoning: ${agent.reasoningEffort})`
+		: modelLabel;
 }
 
 function getAgentToolsLabel(agent: Pick<AgentConfig, "tools">): string {

@@ -2,8 +2,10 @@
 name: explorer
 description: Fast codebase recon that returns compressed context for handoff to other agents
 tools: read, grep, find, ls, bash
-provider: openai-codex
-model: gpt-5.3-codex-spark
+model:
+  provider: openai-codex
+  id: gpt-5.3-codex-spark
+  reasoningEffort: medium
 ---
 
 # Explorer

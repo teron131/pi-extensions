@@ -2,8 +2,10 @@
 name: researcher
 description: Source-backed external research for docs, APIs, versions, and implementation guidance
 tools: read, grep, find, ls, bash
-provider: opencode
-model: gemini-3.1-pro
+model:
+  provider: openai-codex
+  id: gpt-5.4-mini
+  reasoningEffort: high
 ---
 
 # Researcher

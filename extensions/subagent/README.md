@@ -64,7 +64,7 @@ When running headless, the tool now fails closed if project-local agents would r
 subagent({ action: "list", agentScope: "both" })
 ```
 
-The list output now also includes discovery warnings, such as malformed agent files or project agents overriding user agents, and the expanded view shows model/tool/file-path details for each discovered agent.
+The list output now also includes discovery warnings, such as malformed agent files or project agents overriding user agents, and the expanded view shows model/reasoning/tool/file-path details for each discovered agent.
 
 ### Single agent
 ```
@@ -215,14 +215,16 @@ Agents are markdown files with YAML frontmatter:
 name: my-agent
 description: What this agent does
 tools: read, grep, find, ls
-provider: openrouter
-model: openai/gpt-5.4-mini
+model:
+  provider: openrouter
+  id: openai/gpt-5.4-mini
+  reasoningEffort: high
 ---
 
 System prompt for the agent goes here.
 ```
 
-Use `provider:` to override Pi's default provider for the subagent subprocess. Valid provider keys match Pi's own provider names, such as `google`, `openrouter`, and `openai`.
+Use `model.provider` to override Pi's default provider for the subagent subprocess and `model.reasoningEffort` to set Pi's thinking level (`off`, `minimal`, `low`, `medium`, `high`, or `xhigh`). Valid provider keys match Pi's own provider names, such as `google`, `openrouter`, and `openai`.
 
 **Locations:**
 - `~/.pi/agent/agents/*.md` - User-level (always loaded)
@@ -232,12 +234,12 @@ Project agents override user agents with the same name when `agentScope: "both"`
 
 ## Sample Agents
 
-| Agent | Purpose | Provider | Model | Tools |
-|-------|---------|----------|-------|-------|
-| `explorer` | Fast codebase recon | `google` | `gemini-3-flash-preview` | read, grep, find, ls, bash |
-| `planner` | Automatic implementation planning | `openai` | `openai/gpt-5.4` | read, grep, find, ls, question |
-| `reviewer` | Code review | `google` | `gemini-3.1-pro-preview` | read, grep, find, ls, bash |
-| `worker` | General-purpose | `openrouter` | `gpt-5.4-mini` | (all default) |
+| Agent | Purpose | Provider | Model | Reasoning | Tools |
+|-------|---------|----------|-------|-----------|-------|
+| `explorer` | Fast codebase recon | `openai-codex` | `gpt-5.3-codex-spark` | `low` | read, grep, find, ls, bash |
+| `planner` | Automatic implementation planning | `openai-codex` | `gpt-5.5` | `high` | read, grep, find, ls, question |
+| `researcher` | External research | `opencode` | `gemini-3.1-pro` | `high` | read, grep, find, ls, bash |
+| `reviewer` | Code review | `opencode` | `gemini-3.1-pro` | `high` | read, grep, find, ls, bash |
 
 
 ## Workflow Prompts

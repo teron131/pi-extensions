@@ -2,8 +2,10 @@
 name: reviewer
 description: Code review specialist for quality and security analysis
 tools: read, grep, find, ls, bash
-provider: opencode
-model: gemini-3.1-pro
+model:
+  provider: openai-codex
+  id: gpt-5.5
+  reasoningEffort: high
 ---
 
 # Reviewer

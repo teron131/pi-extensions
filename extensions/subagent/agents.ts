@@ -8,12 +8,31 @@ import { getAgentDir, parseFrontmatter } from "@mariozechner/pi-coding-agent";
 
 export type AgentScope = "user" | "project" | "both";
 
+export type ReasoningEffort =
+	| "off"
+	| "minimal"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh";
+
+interface AgentModelFrontmatter {
+	provider?: unknown;
+	id?: unknown;
+	name?: unknown;
+	reasoningEffort?: unknown;
+	reasoning_effort?: unknown;
+	thinking?: unknown;
+	thinkingLevel?: unknown;
+}
+
 export interface AgentConfig {
 	name: string;
 	description: string;
 	tools?: string[];
 	provider?: string;
 	model?: string;
+	reasoningEffort?: ReasoningEffort;
 	systemPrompt: string;
 	source: "user" | "project";
 	filePath: string;
@@ -47,6 +66,59 @@ function parseToolsField(value: unknown): string[] | undefined {
 	}
 
 	return undefined;
+}
+
+const REASONING_EFFORTS = new Set<string>([
+	"off",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+]);
+
+function parseStringField(value: unknown): string | undefined {
+	return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function parseReasoningEffort(value: unknown): ReasoningEffort | undefined {
+	const effort = parseStringField(value);
+	if (!effort) return undefined;
+	return REASONING_EFFORTS.has(effort)
+		? (effort as ReasoningEffort)
+		: undefined;
+}
+
+function parseModelFields(frontmatter: Record<string, unknown>): {
+	provider?: string;
+	model?: string;
+	reasoningEffort?: ReasoningEffort;
+} {
+	const topLevelProvider = parseStringField(frontmatter.provider);
+	const modelValue = frontmatter.model;
+
+	if (
+		modelValue &&
+		typeof modelValue === "object" &&
+		!Array.isArray(modelValue)
+	) {
+		const modelConfig = modelValue as AgentModelFrontmatter;
+		return {
+			provider: parseStringField(modelConfig.provider) ?? topLevelProvider,
+			model:
+				parseStringField(modelConfig.id) ?? parseStringField(modelConfig.name),
+			reasoningEffort:
+				parseReasoningEffort(modelConfig.reasoningEffort) ??
+				parseReasoningEffort(modelConfig.reasoning_effort) ??
+				parseReasoningEffort(modelConfig.thinking) ??
+				parseReasoningEffort(modelConfig.thinkingLevel),
+		};
+	}
+
+	return {
+		provider: topLevelProvider,
+		model: parseStringField(modelValue),
+	};
 }
 
 function loadAgentsFromDir(
@@ -108,12 +180,7 @@ function loadAgentsFromDir(
 		seenNames.set(normalizedName, filePath);
 
 		const tools = parseToolsField(frontmatter.tools);
-		const provider =
-			typeof frontmatter.provider === "string"
-				? frontmatter.provider
-				: undefined;
-		const model =
-			typeof frontmatter.model === "string" ? frontmatter.model : undefined;
+		const { provider, model, reasoningEffort } = parseModelFields(frontmatter);
 
 		agents.push({
 			name: normalizedName,
@@ -121,6 +188,7 @@ function loadAgentsFromDir(
 			tools,
 			provider,
 			model,
+			reasoningEffort,
 			systemPrompt: body,
 			source,
 			filePath,
