@@ -63,15 +63,16 @@ Domain routing:
 
 ## Delegate Subagents
 
-- Think delegation-first for broad, multi-part, or read-heavy work: look for bounded sidecar tasks that can move in parallel with the main thread.
-- When the harness exposes subagents, use them proactively for non-blocking discovery, refactoring, planning, review, research, or isolated integration. The main agent remains accountable for scope, handoff quality, review, final decisions, and the user-facing result.
-- Before doing broad work entirely on the main thread, check whether subagents can handle independent exploration, research, review, or implementation slices. If no subagents exist, keep the same decomposition discipline locally.
-- Handoffs need goal, current state, relevant files/paths, constraints, success criteria, risks, explicit ownership, and requested output: findings, changed files, unresolved questions, and next steps.
-- When relevant, tell subagents which skills, docs, files, or notes to read first.
-- Run independent tasks in parallel (`tasks` array) or use `chain` for sequential exploration.
-- Repo agents may exist, such as `Explorer`, `Researcher`, and `Planner`.
-- Keep immediate blocking work on the main thread unless the write is clearly separable.
-- Synthesize subagent results centrally.
+- Treat delegation as a coordination tool, not an automatic reflex. Use it when a bounded side task can improve speed, evidence, or review quality while the main thread stays accountable.
+- Before broad, multi-part, or read-heavy work, identify the immediate critical-path task. Keep that work local unless it is clearly separable.
+- Good delegation targets are independent exploration, external research, implementation planning, diff review, verification review, and clearly isolated implementation slices.
+- Poor delegation targets are simple edits, tightly coupled decisions, urgent blockers, vague “think about this” prompts, or work the main thread is already doing.
+- Keep each handoff narrow: give the goal, current state, relevant files or symbols, constraints, success criteria, risks, ownership, and desired emphasis. Do not pour unrelated conversation history into the subagent.
+- Tell subagents which skills, docs, files, or notes to read first when that materially improves the result.
+- For write-capable implementation slices, define explicit ownership and remind the subagent to preserve other work in the tree.
+- Run independent tasks in parallel when the harness supports it; use sequential delegation only when one result genuinely depends on another.
+- Repo agents may exist, such as `Explorer`, `Researcher`, `Planner`, and `Reviewer`.
+- Synthesize subagent results centrally. Resolve conflicts, verify important claims, and decide what changes actually land.
 
 ## Operating Loop
 
