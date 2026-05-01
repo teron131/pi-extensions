@@ -20,7 +20,7 @@
 **Verification**
 
 - JS/TS projects: run the repo's configured build, typecheck, or equivalent validation command with the existing package manager. Prefer `build` when present.
-- Frontend work: when a rendered page/app can be opened, use `playwright-cli` before or early in the change, iterate with DOM/state/screenshot checks, and verify after changes.
+- Frontend work: use `playwright-cli` when the change is visually or behaviorally complex, when manual inspection is needed to reproduce a failure, or when earlier non-browser verification fails. For simple copy, spacing, or local style tweaks, prefer the repo's normal build/typecheck/lint path and summarize why browser verification was skipped.
 
 ## Skills Router
 
@@ -48,7 +48,7 @@ Frontend routing:
 - Use `skills/frontend-taste/minimalist-ui/SKILL.md` or `skills/frontend-taste/brutalist-ui/SKILL.md` only when that visual language is requested.
 - Use `skills/frontend-imagegen/frontend-imagegen-web/SKILL.md` or `skills/frontend-imagegen/frontend-imagegen-mobile/SKILL.md` only for generated design imagery or mockups, not frontend code.
 - Use `skills/uncodixfy/SKILL.md` as the final anti-pattern check when the UI risks looking generic or AI-made.
-- Use `skills/playwright-cli/SKILL.md` for frontend implementation, redesign, or debugging whenever a rendered page/app can be opened, and for browser-driven inspection or reproduction.
+- Use `skills/playwright-cli/SKILL.md` for complex frontend implementation, redesign, interaction debugging, visual regressions, browser-only failures, or when a rendered page/app must be inspected to gain confidence. Do not require it for every small frontend edit.
 - Carry the high-level frontend bar into every design skill: hierarchy, restraint, product fit, responsive continuity, accessible polish, complete states, text containment, palette/type discipline, and purposeful motion. Avoid generic feature-card stacks, decorative dashboard chrome, fake premium gradients, ornamental labels, and branding that could fit any random AI startup mockup.
 
 Domain routing:
