@@ -57,6 +57,7 @@ Domain routing:
 - `skills/langchain-langgraph-references/SKILL.md`: agents, tools, structured output, middleware, graph state, or stateful LLM workflows.
 - `skills/deploy-mcp-gcloud/SKILL.md`: FastMCP on Google Cloud Run, OAuth wiring, stable URLs, or cost-safe defaults.
 - `skills/llm-stats/SKILL.md`: model comparison, benchmark lookup, selection, or price/latency/context/capability tradeoffs.
+- `skills/stock-search/SKILL.md`: stock analysis under the local opinionated Stock Search framework.
 - `skills/update-uv-deps/SKILL.md`: rewrite `uv` dependency bounds in `pyproject.toml` after lockfile updates.
 - `skills/youtube/SKILL.md`: YouTube transcripts, subtitles, or recent channel listings without downloading media.
 - `skills/gemini-consultant/SKILL.md`: outside second opinion after meaningful progress, or when stuck.
